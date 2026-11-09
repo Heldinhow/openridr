@@ -42,7 +42,8 @@ seção NuGet e o marcador de linha atual do debug usam `--accent-text`.
 - Raio sempre por token: 33 `border-radius` numéricos viraram `--r-sm`/`--r-md`/`--r-pill`
   (3→4 px, 2→4 px, 5→6 px, 9 px→pill; 10 elementos medidos, todos em controles densos).
 - Piso de 11 px: `font: 700 7px/1` do selo de símbolo virou 11 px em caixa de 12 px; os dois
-  rótulos de 10 px das rails de ação (Tests/NuGet) viraram `--fs-badge`.
+  rótulos de 10 px das rails de ação (Tests/NuGet) viraram `--fs-badge`; o selo `↗` da pasta
+  `config` (`src/solution-icons.css`) saiu de `bold 9px/8px` para `--fs-badge`/1.
 - One-offs de UI: 15 px → `--fs-label`/`--fs-ui`, 16 px → `--fs-ui`, títulos de diálogo
   `h2` 16 px/700 → `--fs-ui`/600, `h1` 24 px → `--fs-title` 20 px.
 
@@ -59,16 +60,35 @@ Diff de estilos computados (720 elementos visíveis, antes × depois, mesma nave
 | `border-radius` | 3 → 4 px | 10 |
 | `font-weight` | 700 → 600 (h2) | 2 |
 
-Nenhuma outra propriedade mudou. Nenhum elemento HTML com `font-size` < 11 px; só `<text>` de SVG
-(glifos de ícone), que é arte.
+Nenhuma outra propriedade mudou **nos 720 elementos e estados amostrados** (welcome, trust,
+workspace, Problems, Tests, NuGet, Build, Git, Settings). A amostra não cobre todo estado do app:
+Run configurations, debug em execução e a pasta `config` da árvore não estavam visíveis.
+
+Piso de 11 px: nenhum `font-size` abaixo disso no CSS ou em estilo inline de componente. Ficam
+abaixo de 11 px só `<text>` de SVG (glifos de ícone, arte) e o tamanho do editor, que é configuração
+do usuário.
 
 ## Specs
 
 - `tests/e2e/disabled-states.spec.ts` — **9 passed** (critério de aceite do #329).
+- `tests/e2e/setup-gate-layout.spec.ts` — **passed**; `tests/e2e/medium-nav-layout.spec.ts` —
+  5 passed / 2 failed. Os dois `docked Find Usages` falham **igual em `origin/main`** (medido: mesma
+  asserção `data-cursor` "2:17" × "4:0" com o CSS da main), então são dívida anterior, não regressão.
 - `tests/e2e/workspace.spec.ts` — 7 passed / 7 failed **neste ambiente**: o primeiro teste escolhe
   modo restrito e o trust store do host de E2E persiste a decisão para os testes seguintes, que então
   não veem o prompt e falham ao salvar. As asserções falham em Restricted mode, não por CSS; a
   mensagem é sempre `app-log` ausente com Build/Run/Git desabilitados. Não reproduzido em macOS.
+
+## Correções da revisão de código
+
+- `run-config-add` ainda usava `--accent` como texto (4,18:1) → `--accent-text`.
+- `border-radius` cru restante em `rider-chrome.css` (6 px) e `git-panel.css` (4 px) → tokens.
+- Selo `↗` da pasta `config` a 9 px → `--fs-badge`.
+- `.cm-line-current` e o override de `rider-chrome.css` tinham valores diferentes; agora são dois
+  tokens (`--debug-current-line`, `--debug-current-line-strong`) com os valores originais, sem troca
+  de aparência.
+- Comentário da escala de espaçamento corrigido (a escala vale para valores que caem num passo; os
+  densos ficam crus de propósito).
 
 ## Não verificado
 

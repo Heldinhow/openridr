@@ -46,7 +46,7 @@
 .git-diff-editors .git-diff-line-empty { background: #27292e; }
 .git-diff-editors .git-diff-intraline { background: #5377ac; }
 
-.git-diff-toolbar .git-diff-mode { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.git-diff-toolbar .git-diff-mode { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; }
 .git-diff-toolbar .git-diff-mode button { width: auto; height: 22px; padding: 0 8px; border-radius: 0; color: var(--muted); font-size: var(--fs-meta); }
 .git-diff-toolbar .git-diff-mode button + button { border-left: 1px solid var(--line); }
 .git-diff-toolbar .git-diff-mode button[aria-pressed="true"] { background: var(--raised); color: var(--fg); }

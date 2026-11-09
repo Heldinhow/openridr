@@ -64,7 +64,7 @@
 .tabbar .tab {
   margin-right: 4px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--r-md);
   background: transparent;
 }
 
@@ -99,7 +99,7 @@
 }
 
 .cm-editor .cm-line.cm-line-current {
-  background-color: var(--debug-current-line);
+  background-color: var(--debug-current-line-strong);
 }
 
 .workspace-tools > summary {

@@ -47,7 +47,8 @@
   --fs-label: 13px;
   --fs-meta: 12px;
   --fs-badge: 11px;
-  /* Spacing is a 4 px scale; every padding/gap/margin picks a step, never a raw value. */
+  /* Spacing is a 4 px scale. A value that lands on a step uses the token; deliberate dense values
+     (1/2/3/6/10 px) stay raw so migrating the scale does not change the layout. */
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
@@ -106,7 +107,9 @@
   --debug-current: #f2c55c;
   --debug-current-halo: rgba(242, 197, 92, 0.4);
   --debug-breakpoint-line: rgba(108, 42, 46, 0.4);
-  --debug-current-line: rgba(92, 74, 35, 0.6);
+  --debug-current-line: rgba(74, 74, 29, 0.6);
+  /* rider-chrome.css overrides the same line with a warmer tone; both values are shipped. */
+  --debug-current-line-strong: rgba(92, 74, 35, 0.6);
   --diff-del-surface: #5a2d33;
   --diff-add-surface: #2d4a35;
   --change-add: #4a9a4f;
@@ -3321,7 +3324,7 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .modal-backdrop:has(.find-action) { place-items: start center; padding-top: 12vh; }
 .find-action { display: flex; flex-direction: column; padding: 0; background: var(--raised); border-radius: var(--r-xl); overflow: hidden; }
 .find-action > h2, .find-action > [data-testid="find-action-profile"] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); margin: 0; }
-.find-action > input { order: -2; min-height: 52px; border: 0; border-radius: 0; background: transparent; font-size: 16px; padding: 0 20px; box-shadow: none; border-bottom: 1px solid var(--line-internal); }
+.find-action > input { order: -2; min-height: 52px; border: 0; border-radius: 0; background: transparent; font-size: var(--fs-ui); padding: 0 20px; box-shadow: none; border-bottom: 1px solid var(--line-internal); }
 .find-action > input:focus-visible { box-shadow: none; border-color: var(--line-internal); }
 .find-action > .search-tabs { order: -1; margin: 0; padding: var(--sp-2) var(--sp-3); gap: var(--sp-1); border-bottom: 1px solid var(--line-internal); }
 .find-action .search-tabs button { min-height: 28px; border: 0; border-radius: var(--r-md); box-shadow: none; background: transparent; color: var(--muted); font-weight: 500; padding: 0 10px; }
@@ -3386,7 +3389,7 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .run-config-list button { min-height: var(--control-h); justify-content: flex-start; text-align: left; border-radius: var(--r-md); box-shadow: none; font-weight: 500; color: var(--muted); }
 .run-config-list button:hover:not(:disabled) { background: var(--accent-surface); }
 .run-config-list button[aria-current="true"] { background: var(--accent-surface-strong); color: var(--fg); }
-.run-config-list .run-config-add { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); margin-top: 6px; }
+.run-config-list .run-config-add { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-text); margin-top: 6px; }
 .run-config-list .run-config-add .icon { width: 14px; height: 14px; }
 .run-config-list-actions { display: flex; gap: 2px; margin-top: auto; padding-top: var(--sp-2); border-top: 1px solid var(--line-internal); }
 .run-config-list-actions button { flex: 1 1 0; min-height: 28px; font-size: var(--fs-meta); font-weight: 500; }
