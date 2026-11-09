@@ -290,3 +290,18 @@ metáfora certa de um IDE, não um card decorativo).
 
 As correções saem em issues filhas, uma por achado — ver a lista na issue-mãe #328. Os padrões que
 esta crítica recomenda estão em [`DESIGN.md`](../../DESIGN.md) (proposta).
+
+## Issues filhas
+
+Uma por correção, ligadas a esta como sub-issues:
+
+| # | Correção | Risco |
+|---|---|---|
+| [#329](https://github.com/Heldinhow/openridr/issues/329) | Contraste do texto sobre ação primária e superfícies de estado | `risk:low` |
+| [#330](https://github.com/Heldinhow/openridr/issues/330) | Estado de prontidão do workspace (restore/evaluation/análise) | `risk:medium` |
+| [#331](https://github.com/Heldinhow/openridr/issues/331) | Chrome dos tool windows devolve área ao conteúdo | `risk:medium` |
+| [#332](https://github.com/Heldinhow/openridr/issues/332) | Trust prompt: o que executa, e duas escolhas com peso comparável | `risk:high` (pede ok do Helder) |
+| [#333](https://github.com/Heldinhow/openridr/issues/333) | Foco visível e navegação icon-only na rail | `risk:medium` |
+| [#334](https://github.com/Heldinhow/openridr/issues/334) | Tokens fantasma e cores fora do token | `risk:low` |
+| [#335](https://github.com/Heldinhow/openridr/issues/335) | Escala de tipografia e espaçamento | `risk:low` |
+| [#336](https://github.com/Heldinhow/openridr/issues/336) | Microcopy de erro e de estado vazio | `risk:medium` |
