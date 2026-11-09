@@ -2009,3 +2009,39 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 - **Consequência.** `crates/host/src/evaluation.rs` (`invoke` recebe a raiz), `crates/host/src/lib.rs`
   (sai o `shortcut:` de `resolve_without_pin`) e um teste de fronteira em `crates/host/tests/host.rs`.
   Nenhum `data-testid` tocado.
+
+## 2026-11-08 — O build do Linux embute o netcoredbg e o setup fica pronto (issue #318)
+
+- **A decisão.** O build do Linux passa a embutir o netcoredbg `3.2.0-1092`, como o macOS: o
+  `.tar.gz` oficial da arquitetura é verificado por SHA-256 em tempo de build
+  (`scripts/vendor-netcoredbg.sh`; pinos `065ff49b…` para `linux-arm64` e `080eb3b2…` para
+  `linux-amd64`, os mesmos do metadata da release) e extraído para
+  `src-tauri/resources/netcoredbg/`. O runtime nunca baixa nem descompacta o `.tar.gz`, e o
+  instalador `debug.install` continua recusado onde o adaptador é embutido.
+- **Onde o app procura.** `bundled::resources_root()` ganhou o layout do Linux, relativo ao
+  binário e nunca ao `cwd`: `<dir do exe>/../lib/<nome do binário>` — o mesmo que o Tauri resolve
+  em `resource_dir()` — com `/usr/lib/<nome>` como instalação de sistema. `debugger::bundled_binary()`
+  usa a plataforma real do processo em vez do `osx-arm64` fixo.
+- **O gate.** O gate de Linux deixou de ser "unavailable / fora do P0": passa a `installable: false`
+  (o instalador nunca roda) e `bundled: true` (o adaptador embutido satisfaz o gate). `ready`
+  continua exigindo `--version` com `3.2.0` no binário real, no `ready_adapter`; o snapshot
+  reporta `ready` pela presença do executável, como no macOS. Adaptador ausente bloqueia o setup
+  com a mensagem de reinstalação e sem download.
+- **O que não muda.** macOS mantém o mesmo asset, pino, assinatura e layout: `gate.bundled` só é
+  verdadeiro lá com o opt-in experimental, que é o que já bloqueava. `is_setup_ready`, os gates de
+  trust e o `setup_override` de teste não foram tocados. Windows e macOS Intel mantêm o
+  comportamento atual.
+- **Build.** `src-tauri/tauri.linux.conf.json` (merge RFC 7396 sobre `tauri.conf.json`) troca o
+  `beforeBuildCommand` para não chamar `vendor-analysis.sh` (csharp-ls e runtime .NET continuam
+  fora do escopo no Linux) e remove `resources/csharp-ls/` e `resources/dotnet/` de
+  `bundle.resources` com `null`. O macOS continua com o `beforeBuildCommand` e os três resources.
+- **Proteções da extração de build.** O script valida a listagem do `tar` antes de escrever:
+  caminho absoluto, segmento `..`, symlink, hardlink e arquivo especial são recusados, com os
+  mesmos limites do `extract_zip` (200 entradas, 200 MiB). `tests/shell/vendor-netcoredbg.test.sh`
+  cobre cada recusa e o pino; a costura de teste do script substitui o arquivo e o digest, nunca
+  os checks.
+- **Consequência.** `crates/host/src/bundled.rs`, `crates/host/src/debugger.rs`,
+  `crates/host/tests/debugger.rs`, `src/host/client.ts` (`availability: "bundled"`),
+  `scripts/vendor-netcoredbg.sh`, `src-tauri/tauri.linux.conf.json`, os dois `.tar.gz` em
+  `vendor/netcoredbg/` e `tests/shell/vendor-netcoredbg.test.sh`. Nenhum `data-testid` tocado,
+  nenhuma dependência nova, `AGENTS.md` intocado.

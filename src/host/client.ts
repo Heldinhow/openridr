@@ -533,7 +533,8 @@ export type Setup = {
 };
 
 /** netcoredbg asset as published by the approved official release. Only assets actually
- * present in the release metadata are listed; `availability` never implies DAP support. */
+ * present in the release metadata are listed; `availability` never implies DAP support.
+ * `bundled` means the build embeds the asset (Linux): the runtime never downloads it. */
 export type DebugAsset = {
   platform: string;
   name: string;
@@ -541,7 +542,7 @@ export type DebugAsset = {
   sha256: string;
   archive: string;
   support: string;
-  availability: "available" | "unverified" | "unsupported_archive" | "absent";
+  availability: "available" | "unverified" | "unsupported_archive" | "bundled" | "absent";
   reason: string | null;
   url: string;
   testOverride: boolean;

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBuildCommand": "bun run build && sh \"$(git rev-parse --show-toplevel)/scripts/vendor-netcoredbg.sh\""
+  },
+  "bundle": {
+    "resources": {
+      "resources/csharp-ls/": null,
+      "resources/dotnet/": null
+    }
+  }
+}
