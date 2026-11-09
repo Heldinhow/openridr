@@ -355,6 +355,7 @@ fn fake_netcoredbg(path: &Path) {
     }
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 #[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
 fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it_isolated() {
@@ -1166,14 +1167,117 @@ fn the_debugger_methods_are_gated_before_trust_like_the_other_executables_isolat
     }
     assert!(!tool_dir(home.path()).exists());
     // Planning and reading the state stay read-only and trust-free.
-    assert_eq!(
-        host.dispatch("debug.plan", json!({})).unwrap()["debug"]["adapterState"],
-        "experimental_disabled"
-    );
+    let planned = host.dispatch("debug.plan", json!({})).unwrap();
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    assert_eq!(planned["debug"]["adapterState"], "experimental_disabled");
+    // Linux has no installer: without the embedded adapter the state is unavailable, never a
+    // download offer.
+    #[cfg(target_os = "linux")]
+    assert_eq!(planned["debug"]["adapterState"], "unavailable");
     assert_eq!(
         host.dispatch("debug.state", json!({})).unwrap()["debug"]["version"],
         "3.2.0-1092"
     );
+}
+
+/// Linux has no installer at all: the build embeds the adapter, so the host must resolve it and
+/// verify `--version`, and a missing or damaged one must block without downloading.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "isolated leaf: it writes OPENRIDR_* for its own host, so it runs in its own process"]
+fn a_linux_bundle_is_ready_and_a_missing_one_blocks_isolated() {
+    let home = tempfile::tempdir().unwrap();
+    let bundle = tempfile::tempdir().unwrap();
+    let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+    let _probe = EnvVar::set("OPENRIDR_ENABLE_PROBE", "0");
+    let _bundle = EnvVar::set("OPENRIDR_BUNDLED_NETCOREDBG", bundle.path());
+
+    let host = support::host();
+    let workspace = temp_workspace();
+    open(&host, workspace.path());
+    host.dispatch("trust.grant", json!({})).unwrap();
+
+    // No adapter in the bundle: setup stays blocked and the installer is not an option.
+    let missing = state(&host);
+    assert_eq!(missing["bundled"], false);
+    assert_ne!(missing["adapterState"], "ready");
+    assert_eq!(missing["installable"], false);
+    assert!(
+        missing["adapterMessage"]
+            .as_str()
+            .unwrap()
+            .contains("nothing is downloaded"),
+        "{}",
+        missing["adapterMessage"]
+    );
+    let planned = host.dispatch("debug.plan", json!({})).unwrap();
+    let plan_id = planned["debug"]["plan"]["planId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(planned["debug"]["installable"], false);
+    assert_eq!(
+        error_code(host.dispatch(
+            "debug.install",
+            json!({ "planId": plan_id, "confirm": true })
+        )),
+        "unsupported_archive"
+    );
+
+    // The embedded adapter verifies and becomes the ready executable.
+    let binary = bundle.path().join("netcoredbg");
+    fake_netcoredbg(&binary);
+    let ready = state(&host);
+    assert_eq!(ready["adapterState"], "ready");
+    assert_eq!(ready["bundled"], true);
+    assert_eq!(ready["installable"], false);
+    assert_eq!(
+        ready["installedBinary"].as_str().unwrap(),
+        binary.to_string_lossy()
+    );
+    assert!(ready["adapterMessage"]
+        .as_str()
+        .unwrap()
+        .contains("Bundled with OpenRidr"));
+    let refused = host
+        .dispatch("debug.install", json!({ "confirm": true }))
+        .expect_err("the embedded adapter is never downloaded");
+    assert_eq!(refused.code, "invalid_state");
+
+    // A damaged adapter (a real file that does not answer --version with 3.2.0) blocks again:
+    // `ready` is never reported from the file's presence alone.
+    fs::write(
+        &binary,
+        "#!/bin/sh\nprintf 'NET Core debugger 3.1.1-1000\n'\n",
+    )
+    .unwrap();
+    let damaged = state(&host);
+    assert_ne!(damaged["adapterState"], "ready");
+    assert_eq!(damaged["bundled"], true);
+    assert!(
+        damaged["adapterMessage"]
+            .as_str()
+            .unwrap()
+            .contains("did not verify"),
+        "{}",
+        damaged["adapterMessage"]
+    );
+
+    // A bundle that lost the executable blocks too, instead of falling back to a download.
+    fs::remove_file(&binary).unwrap();
+    let missing_again = state(&host);
+    assert_ne!(missing_again["adapterState"], "ready");
+    assert_eq!(missing_again["bundled"], false);
+    assert!(missing_again["adapterMessage"]
+        .as_str()
+        .unwrap()
+        .contains("nothing is downloaded"));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_linux_bundle_is_ready_and_a_missing_one_blocks() {
+    support::run_isolated_leaf("a_linux_bundle_is_ready_and_a_missing_one_blocks_isolated");
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -1309,6 +1413,7 @@ fn an_ambient_bundled_override_never_reaches_the_controlled_installer() {
 
 // Each leaf below writes `OPENRIDR_*` for its host, so it runs in its own process: the
 // shared test process never changes its environment.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn macos_arm64_needs_the_experimental_flag_and_never_downloads_without_it() {
     support::run_isolated_leaf(

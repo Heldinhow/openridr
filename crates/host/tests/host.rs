@@ -603,6 +603,38 @@ fn the_directory_listing_refuses_escapes_by_shape() {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn the_file_chooser_refuses_where_no_native_dialog_exists() {
+    // The welcome screen keys its path field off this code: a plain failure would be shown as an
+    // error, `pick_unavailable` is the documented "type the path instead" fallback.
+    let host = support::host();
+    let error = host
+        .dispatch("workspace.pick", json!({}))
+        .expect_err("no native chooser off macOS");
+    assert_eq!(error.code, "pick_unavailable");
+    assert!(error.message.contains("type the path"), "{}", error.message);
+}
+
+#[test]
+fn a_registered_file_chooser_owns_workspace_pick() {
+    // The Linux shell registers the portal chooser; the host still owns the method and the
+    // `{ path }` / `{ path: null }` contract, so the UI does not know which dialog answered.
+    let host = support::host();
+    host.set_file_picker(|| Ok(json!({ "path": "/tmp/OrderDesk.sln" })));
+    let picked = host
+        .dispatch("workspace.pick", json!({}))
+        .expect("the shell chooser answers");
+    assert_eq!(picked["path"], "/tmp/OrderDesk.sln");
+
+    let cancelled = support::host();
+    cancelled.set_file_picker(|| Ok(json!({ "path": null })));
+    let cancelled = cancelled
+        .dispatch("workspace.pick", json!({}))
+        .expect("cancelling is not an error");
+    assert!(cancelled["path"].is_null());
+}
+
 #[test]
 fn directory_resolution_requires_an_explicit_choice() {
     let host = support::host();

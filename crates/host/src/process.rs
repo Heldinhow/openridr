@@ -97,11 +97,13 @@ impl Entry {
                         libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
                     )
                 };
-                if observed == 0 && info.si_pid == self.pid as libc::pid_t {
+                if observed == 0 && info_pid(&info) == self.pid as libc::pid_t {
                     self.exited = true;
                     match info.si_code {
-                        libc::CLD_EXITED => self.exit = Some(info.si_status),
-                        libc::CLD_KILLED | libc::CLD_DUMPED => self.signal = Some(info.si_status),
+                        libc::CLD_EXITED => self.exit = Some(info_status(&info)),
+                        libc::CLD_KILLED | libc::CLD_DUMPED => {
+                            self.signal = Some(info_status(&info))
+                        }
                         _ => {}
                     }
                     self.awaiting_decision = false;
@@ -477,6 +479,31 @@ fn taskkill(pid: u32, hard: bool) -> bool {
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     matches!(command.status(), Ok(status) if status.success())
+}
+
+/// `siginfo_t` exposes the leader pid as a field on macOS and as an accessor on Linux, so the
+/// two readers keep the `waitid` call above portable without touching the observation logic.
+#[cfg(all(unix, target_os = "linux"))]
+fn info_pid(info: &libc::siginfo_t) -> libc::pid_t {
+    // Safe: `waitid` with `WEXITED` filled this `siginfo_t`, so the accessor reads the
+    // member that was actually written.
+    unsafe { info.si_pid() }
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn info_pid(info: &libc::siginfo_t) -> libc::pid_t {
+    info.si_pid
+}
+
+#[cfg(all(unix, target_os = "linux"))]
+fn info_status(info: &libc::siginfo_t) -> libc::c_int {
+    // Safe: same `waitid(WEXITED)` provenance as `info_pid`.
+    unsafe { info.si_status() }
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn info_status(info: &libc::siginfo_t) -> libc::c_int {
+    info.si_status
 }
 
 /// The signal that killed the child, if any. A normal exit reports `code()` and no signal.

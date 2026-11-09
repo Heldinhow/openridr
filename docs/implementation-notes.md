@@ -2324,3 +2324,33 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   posição, que usa a raiz da workspace e não o `cwd` da avaliação; a causa segue não determinada.
 - **Não verificado:** Windows e macOS Intel; `src-tauri` (não tocado, job informativo); a causa da falha
   de `test_run` acima (o valor recebido não foi preservado nesta observação).
+
+## O build do Linux embute o netcoredbg e o setup fica pronto (2026-11-08, #318)
+
+- **O que mudou.** `scripts/vendor-netcoredbg.sh` ganhou o ramo Linux: escolhe o `.tar.gz` oficial
+  da arquitetura, confere o SHA-256 fixado e extrai para `src-tauri/resources/netcoredbg/` com as
+  mesmas proteções do `extract_zip` do host (sem caminho absoluto, `..`, symlink, hardlink ou
+  arquivo especial; 200 entradas e 200 MiB). A extração ficou em
+  `scripts/vendor-netcoredbg-linux.sh`, sourcing do script principal, para o teste de shell chamar
+  as checagens com um arquivo controlado sem abrir uma costura no build. Os dois `.tar.gz` oficiais
+  ficam versionados em `vendor/netcoredbg/`, como o zip do macOS.
+- **Onde o app procura.** `bundled::resources_root()` resolve no Linux
+  `<dir do exe>/../lib/<nome do binário>` (o mesmo do `resource_dir()` do Tauri) com
+  `/usr/lib/<nome>` de fallback; `debugger::bundled_binary()` usa a plataforma real do processo.
+  `src-tauri/tauri.linux.conf.json` (merge RFC 7396) troca o `beforeBuildCommand` e remove
+  `resources/csharp-ls/` e `resources/dotnet/` do bundle no Linux; o macOS não muda.
+- **O gate.** Linux deixa de ser "unavailable / fora do P0": `installable: false` e
+  `bundled: true`. `ready` agora exige `--version` com `3.2.0` também no snapshot: a verificação
+  do adaptador embutido é cacheada por caminho + mtime + tamanho, então o poll de 400 ms não
+  spawna o processo. Adaptador ausente ou com versão errada bloqueia o setup com mensagem de
+  reinstalação e sem download; um instalador por usuário existente continua sendo nomeado na
+  mensagem, como no macOS.
+- **Como foi verificado.** `bun run tauri build --no-bundle` no checkout limpo; `cargo test -p
+  openridr-host` com `LC_ALL=C` (487 lib + 10 + 2 + 12 + 89); `dash tests/shell/vendor-netcoredbg.test.sh`
+  (10 checks); host com o layout de instalação (`setup ready`, `debug ready`, `bundled`, runtime
+  `10.0.14`) e sessão de debug real no `OrderDesk` parando em `Program.cs:4` com `exit 0` ao
+  continuar; app instalado com setup, trust, workspace e a mesma sessão parando no breakpoint.
+  Detalhe em [evidence/linux-netcoredbg.md](evidence/linux-netcoredbg.md).
+- **Não verificado:** `x86_64` (mesmo pino e mesmo caminho de extração, sem build nem execução);
+  macOS (só a suíte de CI roda os testes de fronteira de lá); `.deb`/AppImage/updater (fora do
+  escopo da issue).

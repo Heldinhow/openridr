@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { matches } from "../actions/keymap";
 import { call, messageOf } from "../host/client";
 import { Icon } from "../Icon";
+import { openShortcut, openShortcutLabel } from "./openTarget";
 import { fetchRecent, type RecentProject } from "./recent";
 import { RecentList } from "./RecentList";
 
 type Props = {
-  // Shortcuts (`/`, ⌘O) only work while the Projects view is the visible one.
+  // Shortcuts (`/`, Open) only work while the Projects view is the visible one.
   active: boolean;
+  // Host platform (`macos`, `linux`, `windows`); `null` until the first snapshot arrives.
+  platform: string | null;
   recent: RecentProject[];
   busy: boolean;
   // Errors of opening a project, keyed by path; shown on that row.
@@ -22,7 +26,7 @@ type Props = {
   children?: ReactNode;
 };
 
-export function ProjectsView({ active, recent, busy, rowErrors, runtimeMissing, awaitingProcesses, onOpen, onPick, onRecent, onShowToolchain, children }: Props) {
+export function ProjectsView({ active, platform, recent, busy, rowErrors, runtimeMissing, awaitingProcesses, onOpen, onPick, onRecent, onShowToolchain, children }: Props) {
   const [filter, setFilter] = useState("");
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const search = useRef<HTMLInputElement>(null);
@@ -34,7 +38,7 @@ export function ProjectsView({ active, recent, busy, rowErrors, runtimeMissing, 
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement;
       if (target.closest("[aria-modal]")) return;
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
+      if (matches(event, openShortcut, platform ?? "")) {
         event.preventDefault();
         onPick();
       } else if (event.key === "/" && !event.metaKey && !event.ctrlKey && !/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) {
@@ -44,7 +48,7 @@ export function ProjectsView({ active, recent, busy, rowErrors, runtimeMissing, 
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [active, onPick]);
+  }, [active, platform, onPick]);
 
   function failRow(path: string, caught: unknown) {
     setActionErrors((current) => ({ ...current, [path]: messageOf(caught) }));
@@ -140,11 +144,11 @@ export function ProjectsView({ active, recent, busy, rowErrors, runtimeMissing, 
           onRemove={(path) => void remove(path)}
         />
       )}
-      <p className="welcome-keys muted">
+      <p className="welcome-keys muted" data-testid="welcome-keys">
         <span><kbd>↑</kbd> <kbd>↓</kbd> select</span>
         <span><kbd>Enter</kbd> open</span>
         <span><kbd>/</kbd> search</span>
-        <span><kbd>⌘O</kbd> open folder</span>
+        {platform && <span><kbd>{openShortcutLabel(platform)}</kbd> open project</span>}
       </p>
     </>
   );

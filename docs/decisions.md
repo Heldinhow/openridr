@@ -2054,3 +2054,63 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   `scripts/install-app-linux.sh`, `tests/shell/install-app-linux.test.sh`, `package.json`,
   `docs/install-app.md`, `docs/README.md` e `docs/evidence/linux-packaging.md`. Nenhum `data-testid`
   tocado, nenhuma dependência nova.
+## 2026-11-08 — Tela de boas-vindas respeita a plataforma (#319)
+
+O botão **Open** deixa de ser um beco sem saída fora do macOS. `workspace.pick` continua sendo o único contrato: o host responde `{ path }`, `{ path: null }` no cancelamento ou o erro `pick_unavailable`. A UI trata `pick_unavailable` como **estado**, não como erro — o campo de caminho aparece com foco e uma linha de status discreta, sem banner vermelho. O campo é permanente no Linux e no Windows e continua escondido no macOS (a aparência verificada não muda); o build de browser/E2E, que não tem seletor nativo, sempre o mostra. `~` e `~/…` são expandidos pelo host (`expand_home`, contra `HOME`/`USERPROFILE`) e todo o resto é tomado como digitado, inclusive `~user` e um til no meio do caminho.
+
+O atalho vem do keymap: `shortcut("o", { primary: true })` com `formatShortcut` dá `⌘O` no macOS e `Ctrl+O` fora dele, e o handler usa `matches`, não `metaKey || ctrlKey`. Nada de texto fixo no JSX.
+
+No Linux a janela não recebe menu: `Builder::menu` não é chamado. O menu GTK padrão (Edit, Window, Help) não é a UI do app, e os itens predefinidos de recortar/copiar/colar/selecionar tudo do `muda` carregam **só o rótulo do acelerador** (`muda-0.20.0/src/platform_impl/gtk/mod.rs`: "These items do not need an accelerator as GTK automatically have them"), com a ação real atrás de `libxdo`, que é X11. A barra nunca foi dona dessas teclas, então removê-la não as tira; quem responde por elas é o webview. Nesta sessão `Ctrl+A` e `Ctrl+V` não responderam no WebKitGTK **com e sem** a barra (ver `docs/evidence/welcome-linux.md`), então o que falta ali é anterior a esta mudança e precisa da confirmação do Helder com teclado real. Windows mantém `Menu::default`.
+
+O seletor nativo no Linux (portal XDG `org.freedesktop.portal.FileChooser`) ainda não existe: `gdbus` sozinho não serve (a resposta do portal é unicast para a conexão que chamou e o portal recusa `Request.Close` de outra conexão), e cada caminho sem dependência nova depende de um runtime do sistema (`gjs`) ou de código de protocolo D-Bus escrito à mão. Fica registrado como pendente de decisão de dependência na #319; até lá o Linux usa o campo de caminho.
+
+Consequência: `crates/host/src/lib.rs` (`expand_home`, `home_dir`, `pick_unavailable`), `src/SetupScreen.tsx`, `src/welcome/{ProjectsView,PathForm}` e `src/welcome/openTarget.ts`, `src/styles.css`, `src-tauri/src/main.rs`, `tests/unit/welcomeOpen.test.ts` e `tests/e2e/welcome.spec.ts`. Nenhum `data-testid` renomeado ou removido; `welcome-keys` e `workspace-pick-notice` são novos.
+
+## 2026-11-08 — O build do Linux embute o netcoredbg e o setup fica pronto (issue #318)
+
+- **A decisão.** O build do Linux passa a embutir o netcoredbg `3.2.0-1092`, como o macOS: o
+  `.tar.gz` oficial da arquitetura é verificado por SHA-256 em tempo de build
+  (`scripts/vendor-netcoredbg.sh`; pinos `065ff49b…` para `linux-arm64` e `080eb3b2…` para
+  `linux-amd64`, os mesmos do metadata da release) e extraído para
+  `src-tauri/resources/netcoredbg/`. O runtime nunca baixa nem descompacta o `.tar.gz`, e o
+  instalador `debug.install` continua recusado onde o adaptador é embutido.
+- **Onde o app procura.** `bundled::resources_root()` ganhou o layout do Linux, relativo ao
+  binário e nunca ao `cwd`: `<dir do exe>/../lib/<nome do binário>` — o mesmo que o Tauri resolve
+  em `resource_dir()` — com `/usr/lib/<nome>` como instalação de sistema. `debugger::bundled_binary()`
+  usa a plataforma real do processo em vez do `osx-arm64` fixo.
+- **O gate.** O gate de Linux deixou de ser "unavailable / fora do P0": passa a `installable: false`
+  (o instalador nunca roda) e `bundled: true` (o adaptador embutido satisfaz o gate). `ready`
+  continua exigindo `--version` com `3.2.0` no binário real, no `ready_adapter`; o snapshot
+  reporta `ready` pela presença do executável, como no macOS. Adaptador ausente bloqueia o setup
+  com a mensagem de reinstalação e sem download.
+- **O que não muda.** macOS mantém o mesmo asset, pino, assinatura e layout: `gate.bundled` só é
+  verdadeiro lá com o opt-in experimental, que é o que já bloqueava. `is_setup_ready`, os gates de
+  trust e o `setup_override` de teste não foram tocados. Windows e macOS Intel mantêm o
+  comportamento atual.
+- **Build.** `src-tauri/tauri.linux.conf.json` (merge RFC 7396 sobre `tauri.conf.json`) troca o
+  `beforeBuildCommand` para não chamar `vendor-analysis.sh` (csharp-ls e runtime .NET continuam
+  fora do escopo no Linux) e remove `resources/csharp-ls/` e `resources/dotnet/` de
+  `bundle.resources` com `null`. O macOS continua com o `beforeBuildCommand` e os três resources.
+- **Proteções da extração de build.** O script valida a listagem do `tar` antes de escrever:
+  caminho absoluto, segmento `..`, symlink, hardlink e arquivo especial são recusados, com os
+  mesmos limites do `extract_zip` (200 entradas, 200 MiB). A extração Linux fica em
+  `scripts/vendor-netcoredbg-linux.sh`, sourcing do script principal, para
+  `tests/shell/vendor-netcoredbg.test.sh` chamar as checagens com um arquivo controlado; o build
+  sempre passa o arquivo e o digest fixados na tabela do script, então nenhum asset é
+  substituído por ambiente.
+- **Consequência.** `crates/host/src/bundled.rs`, `crates/host/src/debugger.rs`,
+  `crates/host/tests/debugger.rs`, `src/host/client.ts` (`availability: "bundled"`),
+  `scripts/vendor-netcoredbg.sh`, `src-tauri/tauri.linux.conf.json`, os dois `.tar.gz` em
+  `vendor/netcoredbg/` e `tests/shell/vendor-netcoredbg.test.sh`. Nenhum `data-testid` tocado,
+  nenhuma dependência nova, `AGENTS.md` intocado.
+
+## 2026-11-09 — Seletor nativo no Linux pelo portal XDG com `zbus` direto (#319)
+
+- **A decisão.** `src-tauri` passa a depender de `zbus` (`[target.'cfg(target_os = "linux")'.dependencies]`, 5.19.0, a mesma versão que já entra transitivamente pelo `tauri-plugin-single-instance`) e `src-tauri/src/picker.rs` implementa o seletor pelo portal `org.freedesktop.portal.FileChooser`: `OpenFile` com filtros `*.sln`, `*.slnx` e `*.csproj`, `{ "path": null }` no cancelamento. Aprovado pelo Helder em 2026-11-09.
+- **O host continua dono do contrato.** `Host::set_file_picker` registra o seletor da shell e `workspace.pick` chama o hook antes do padrão da plataforma; sem hook, o macOS mantém `osascript` e os demais devolvem `pick_unavailable`. O `main` registra `picker::pick_workspace` só no Linux. O `host-http` (dev/E2E) não registra nada, então o Playwright continua vendo `pick_unavailable` e o campo de caminho — que é o fallback que a issue exige.
+- **Por que não `gdbus`.** O portal emite `Response` **unicast** para a conexão que chamou (`request->sender`) e recusa `Request.Close` de outra conexão (`AccessDenied: Portal operation not allowed: Unmatched caller`). Um `gdbus call` sai, a conexão morre e o pedido vai com ela; as duas chamadas estão medidas em `docs/evidence/welcome-linux.md` (PR #320).
+- **Por que não `gjs`.** Resolveria sem dependência de repositório, mas exige um runtime do sistema que não está garantido (nesta máquina ele só existe por causa do `sushi`) e transforma o seletor num subprocesso cujo ciclo de vida teria de ser casado com o pedido.
+- **Por que não `tauri-plugin-dialog`.** É a solução de GUI do Tauri, mas no Linux também depende de um backend de diálogo do sistema e adiciona uma árvore de dependências maior que o `zbus` já presente; o contrato `workspace.pick` do host continuaria precisando de um seam igual.
+- **O que não muda.** `workspace.pick` continua devolvendo `{ path }`, `{ path: null }` no cancelamento ou `pick_unavailable`; o caminho escolhido entra no mesmo `workspace.open` (expansão de `~`, canonicalize, confinamento, trust). Nenhum `data-testid` tocado e nenhuma mudança de UI: o campo de caminho continua permanente no Linux/Windows e escondido no macOS.
+- **Limite conhecido.** O diálogo é aberto sem `parent_window` (o Tauri/tao não exporta um handle `xdg-foreign`), então ele não é modal em relação à janela do app; no Hyprland ele aparece como uma janela própria do backend GTK do portal. `pick_unavailable` cobre "sem barramento de sessão", "sem portal" e "sem backend de file chooser"; o detalhe vai para o stderr, não para a tela.
+- **Consequência.** `src-tauri/Cargo.toml`, `src-tauri/src/{main,picker}.rs`, `crates/host/src/lib.rs` (`FilePicker`, `set_file_picker`, `pick_workspace` com hook) e um teste de fronteira em `crates/host/tests/host.rs`. Evidência em `docs/evidence/picker-linux.md`.

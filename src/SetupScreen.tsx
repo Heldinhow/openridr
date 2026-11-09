@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { call, candidatesOf, HostCallError, messageOf, type Candidate, type Snapshot } from "./host/client";
 import { Icon } from "./Icon";
+import { showsPathForm } from "./welcome/openTarget";
 import { PathForm } from "./welcome/PathForm";
 import { ProjectsView } from "./welcome/ProjectsView";
 import { ToolchainView } from "./welcome/ToolchainView";
@@ -34,7 +35,11 @@ export function SetupScreen({
   const [error, setError] = useState<string | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  // Why the native chooser refused, and a counter that moves the focus to the field when it does.
+  const [pickNotice, setPickNotice] = useState<string | null>(null);
+  const [pickFocus, setPickFocus] = useState(0);
   const workspace = snapshot?.workspace ?? null;
+  const platform = snapshot?.app.platform ?? null;
 
   // `row` is the recent project the open was started from: its failure is shown on that row.
   async function open(target: string, row?: string) {
@@ -64,9 +69,13 @@ export function SetupScreen({
   async function pick() {
     try {
       const { path: picked } = await call<{ path: string | null }>("workspace.pick");
+      // Cancelling leaves the screen as it was: no error, no notice, nothing opened.
+      setPickNotice(null);
       if (picked) await open(picked);
     } catch (caught) {
-      setError(messageOf(caught));
+      // A refused chooser is not an error: the field is the way out, so it takes the focus.
+      setPickNotice(messageOf(caught));
+      setPickFocus((count) => count + 1);
     }
   }
 
@@ -94,6 +103,7 @@ export function SetupScreen({
         <div className="setup" hidden={view !== "projects"} data-testid="welcome-projects">
           <ProjectsView
             active={view === "projects"}
+            platform={platform}
             recent={recent}
             busy={busy}
             rowErrors={rowErrors}
@@ -104,13 +114,22 @@ export function SetupScreen({
             onRecent={onRecent}
             onShowToolchain={() => setView("toolchain")}
           >
-            {!window.__TAURI_INTERNALS__ && (
-              <PathForm initialPath={initialPath} busy={busy} invalid={Boolean(error)} onOpen={(path) => void open(path)} />
+            {showsPathForm({
+              tauri: Boolean(window.__TAURI_INTERNALS__),
+              platform,
+              pickerUnavailable: pickNotice !== null,
+            }) && (
+              <PathForm
+                initialPath={initialPath}
+                busy={busy}
+                invalid={Boolean(error)}
+                notice={pickNotice ?? undefined}
+                focusRequest={pickFocus}
+                onOpen={(path) => void open(path)}
+              />
             )}
             {error && (
-              <div className="notice error" role="alert" data-testid="workspace-error">
-                {error}
-              </div>
+              <p className="open-error error" role="alert" data-testid="workspace-error">{error}</p>
             )}
             {candidates.length > 1 && (
               <div className="candidate-box" aria-labelledby="candidate-title" data-testid="workspace-candidates">
