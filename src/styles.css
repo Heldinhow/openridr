@@ -1777,7 +1777,11 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 
 .build-controls .eval-field select {
   max-width: 260px;
+  min-width: 0;
 }
+
+/* The Build button carries the startup project name; cap it so the row stays one line at 1100 px. */
+.build-controls > button { max-width: 210px; overflow: hidden; text-overflow: ellipsis; }
 
 .build-meta {
   margin: 0;
@@ -3173,7 +3177,7 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 
 /* ui-shape 05: Build/Run — one 32px control row, plain-text idle state, output before metadata. */
 .build-controls { align-items: center; gap: 8px 10px; }
-.build-controls .eval-field { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; }
+.build-controls .eval-field { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; min-width: 0; }
 .build-controls .eval-field > span { color: var(--muted); font-size: var(--fs-meta); position: static; width: auto; height: auto; clip-path: none; overflow: visible; }
 .build-controls [data-testid="build-state"], .run-window-head [data-testid="run-state"] { font-size: var(--fs-meta); }
 .build-controls [data-testid="build-state"].muted, .run-window-head [data-testid="run-state"].muted { background: transparent; padding: 0; }
@@ -3273,15 +3277,24 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .tests-tabs .tab-label.active { color: var(--fg); background: var(--raised); }
 .tests-tabs .tab-label:disabled { opacity: 0.5; }
 .tests-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: var(--sp-1) var(--sp-2); border-bottom: 1px solid var(--line-internal); }
+/* Secondary panel controls (expand/collapse/export, package filters) sit behind one labeled
+   disclosure so the list keeps the panel height. The summary is a real control: Tab reaches it,
+   Enter/Space opens it, and every button inside keeps its data-testid. */
+.panel-disclosure { position: relative; }
+.panel-disclosure > summary { display: inline-flex; align-items: center; min-height: var(--control-h); padding: 0 var(--sp-2); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--accent-surface); color: var(--fg); font-size: var(--fs-meta); font-weight: 500; cursor: pointer; list-style: none; }
+.panel-disclosure > summary::-webkit-details-marker { display: none; }
+.panel-disclosure > summary::after { content: "\25BE"; margin-left: var(--sp-1); color: var(--muted); }
+.panel-disclosure[open] > summary { background: var(--accent-surface-strong); }
+.panel-disclosure-body { position: absolute; right: 0; top: calc(100% + var(--sp-1)); z-index: 20; display: flex; align-items: flex-end; gap: var(--sp-2); padding: var(--sp-2); background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-menu); }
 .tests-toolbar button { display: inline-flex; align-items: center; gap: var(--sp-1); }
 .tests-toolbar > .muted[data-testid="tests-export-path"] { flex: 1 1 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tests-body { display: flex; align-items: stretch; flex: 1 1 100%; min-height: 0; border-top: 1px solid var(--line-internal); }
+.tests-body { display: flex; align-items: stretch; flex: 1 1 auto; min-height: 0; border-top: 1px solid var(--line-internal); }
 .tests-actions { display: flex; flex-direction: column; gap: 2px; flex: 0 0 74px; padding: var(--sp-1); border-right: 1px solid var(--line-internal); background: var(--bg); }
 .tests-actions button { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 42px; padding: 3px 2px; border-radius: var(--r-md); box-shadow: none; background: transparent; color: var(--muted); font-size: var(--fs-badge); }
 .tests-actions button:hover:not(:disabled) { background: var(--accent-surface); color: var(--fg); }
 .tests-actions button:disabled { opacity: 0.45; }
 .tests-actions .icon { width: 14px; height: 14px; }
-.tests-content { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; gap: 2px; padding: 0 var(--sp-1) var(--sp-1); overflow: auto; }
+.tests-content { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; gap: 2px; padding: 0 var(--sp-1) var(--sp-1); overflow: auto; }
 .tests-content > .test-tree { flex: 1 1 auto; }
 .tests-side { display: flex; flex-direction: column; flex: 0 0 340px; min-width: 0; border-left: 1px solid var(--line-internal); overflow: auto; }
 .tests-side > .tests-detail { flex: 0 0 auto; border-left: 0; max-height: none; }

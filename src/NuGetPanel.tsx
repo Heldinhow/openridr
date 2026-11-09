@@ -604,26 +604,6 @@ export function NuGetPanel({
         <>
           <div className="build-controls">
             <label className="eval-field">
-              <span>Scope</span>
-              <select
-                data-testid="nuget-scope"
-                value={scope}
-                disabled={busy || probe}
-                onChange={(event) => {
-                  setScope(event.target.value as "project" | "solution");
-                  setMode("installed");
-                  setListing(null);
-                  setSolution(null);
-                  setUpdate(null);
-                  setUpdateError(null);
-                }}
-                title="Solution aggregates each evaluated project; it never invents a project that was not evaluated."
-              >
-                <option value="project">Project</option>
-                <option value="solution">Solution</option>
-              </select>
-            </label>
-            <label className="eval-field">
               <span>Project</span>
               <select
                 data-testid="nuget-project"
@@ -645,33 +625,58 @@ export function NuGetPanel({
                 ))}
               </select>
             </label>
-            <label className="eval-field">
-              <span>Source</span>
-              <select
-                data-testid="nuget-source-select"
-                value={selectedSource}
-                disabled={busy}
-                onChange={(event) => setSelectedSource(event.target.value)}
-                title="The selected source also affects the outdated query and Discover. All configured sources are used when none is selected."
-              >
-                <option value="">All configured sources</option>
-                {(enabledSources ?? []).map((source) => (
-                  <option key={`${source.name}:${source.url ?? ""}`} value={source.url ?? source.name}>
-                    {source.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="check-row" title="Include pre-release versions in outdated and Discover queries.">
-              <input
-                type="checkbox"
-                data-testid="nuget-prerelease"
-                checked={prerelease}
-                disabled={busy}
-                onChange={(event) => setPrerelease(event.target.checked)}
-              />
-              Prerelease
-            </label>
+            <details className="panel-disclosure" data-testid="nuget-filters">
+              <summary aria-label="Package filters" title="Scope, source and pre-release filters">Filters</summary>
+              <div className="panel-disclosure-body">
+                <label className="eval-field">
+                  <span>Scope</span>
+                  <select
+                    data-testid="nuget-scope"
+                    value={scope}
+                    disabled={busy || probe}
+                    onChange={(event) => {
+                      setScope(event.target.value as "project" | "solution");
+                      setMode("installed");
+                      setListing(null);
+                      setSolution(null);
+                      setUpdate(null);
+                      setUpdateError(null);
+                    }}
+                    title="Solution aggregates each evaluated project; it never invents a project that was not evaluated."
+                  >
+                    <option value="project">Project</option>
+                    <option value="solution">Solution</option>
+                  </select>
+                </label>
+                <label className="eval-field">
+                  <span>Source</span>
+                  <select
+                    data-testid="nuget-source-select"
+                    value={selectedSource}
+                    disabled={busy}
+                    onChange={(event) => setSelectedSource(event.target.value)}
+                    title="The selected source also affects the outdated query and Discover. All configured sources are used when none is selected."
+                  >
+                    <option value="">All configured sources</option>
+                    {(enabledSources ?? []).map((source) => (
+                      <option key={`${source.name}:${source.url ?? ""}`} value={source.url ?? source.name}>
+                        {source.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="check-row" title="Include pre-release versions in outdated and Discover queries.">
+                  <input
+                    type="checkbox"
+                    data-testid="nuget-prerelease"
+                    checked={prerelease}
+                    disabled={busy}
+                    onChange={(event) => setPrerelease(event.target.checked)}
+                  />
+                  Prerelease
+                </label>
+              </div>
+            </details>
             <button
               type="button"
               data-testid="nuget-refresh"

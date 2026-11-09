@@ -79,6 +79,7 @@ test("D1+D3: single-TFM discovery names net8.0 and the export carries the real r
   });
 
   // D1: the file the button writes is the panel, not an idle run.
+  await page.getByTestId("tests-overflow").locator("summary").click();
   await page.getByTestId("tests-export").click();
   const exported = page.getByTestId("tests-export-path");
   await expect(exported).toContainText("Exported", { timeout: 30_000 });
