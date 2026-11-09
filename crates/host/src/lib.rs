@@ -482,6 +482,13 @@ impl Host {
         }
     }
 
+    /// Registers the resource directory the shell resolved (`AppHandle::path().resource_dir()`).
+    /// A package install puts the payload under the product name (`/usr/lib/OpenRidr`), which is
+    /// not the sibling of the binary, so the host cannot find it on its own.
+    pub fn set_resource_dir(&self, dir: std::path::PathBuf) {
+        bundled::set_shell_resource_dir(dir);
+    }
+
     /// Registers the shell's native file chooser. `workspace.pick` calls it instead of the
     /// platform default, so the host keeps the contract while the shell owns the dialog.
     pub fn set_file_picker<F>(&self, picker: F)

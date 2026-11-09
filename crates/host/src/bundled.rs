@@ -3,9 +3,10 @@
 //! macOS ARM64: `Contents/Resources/csharp-ls` holds the csharp-ls 0.28.0 payload and
 //! `Contents/Resources/dotnet` holds the private `Microsoft.NETCore.App` 10 runtime that
 //! executes it. The project SDK is never bundled and is still resolved from `global.json`.
-//! Linux: the same resource root sits next to the binary, in the Tauri resource directory
-//! (`<exe dir>/../lib/<binary name>`, or `/usr/lib/<binary name>` for a system install); only
-//! netcoredbg ships there today, and the analysis pair keeps its download flow.
+//! Linux: the resource root is the directory the shell resolved (`AppHandle::path().resource_dir()`),
+//! which a deb install puts in `/usr/lib/OpenRidr` and an AppImage in `$APPDIR/usr/lib/OpenRidr`,
+//! falling back to the sibling of the binary (`<exe dir>/../lib/<binary name>`, the `~/.local`
+//! layout). Only netcoredbg ships there today, and the analysis pair keeps its download flow.
 //! Debug builds may point both roots elsewhere (`OPENRIDR_BUNDLED_CSHARP_LS`,
 //! `OPENRIDR_BUNDLED_DOTNET_ROOT`) so tests and isolated runs exercise the bundled path without
 //! a real app bundle. Nothing here downloads, installs or executes a process.
@@ -14,6 +15,7 @@ use crate::sdk::Version;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// Test/dev override for the bundled csharp-ls payload directory. Never set by the app itself.
 pub const CSHARP_LS_OVERRIDE: &str = "OPENRIDR_BUNDLED_CSHARP_LS";
@@ -61,7 +63,7 @@ pub fn resources_root() -> Option<PathBuf> {
     }
     #[cfg(target_os = "linux")]
     {
-        linux_resources_root(&env::current_exe().ok()?)
+        resolve_root(&env::current_exe().ok()?, shell_resource_dir())
     }
     #[cfg(not(any(all(target_os = "macos", target_arch = "aarch64"), target_os = "linux")))]
     {
@@ -69,19 +71,35 @@ pub fn resources_root() -> Option<PathBuf> {
     }
 }
 
-/// Tauri's Linux resource directory, resolved from the binary and never from the working
-/// directory: `<exe dir>/../lib/<binary name>` when it exists (a `~/.local` or `/usr` install),
-/// else the system `/usr/lib/<binary name>`. A binary run from a build tree has neither, so it
-/// reports no bundle and only the debug overrides can point it somewhere.
+/// The resource directory the shell resolved at startup, registered once. A package install does
+/// not put the payload next to the binary: the deb uses `/usr/lib/OpenRidr` and the AppImage
+/// `$APPDIR/usr/lib/OpenRidr`, so the shell is the only one that knows where it is.
+static SHELL_RESOURCE_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Registers the directory the shell resolved. The first registration wins: one process runs one
+/// installation, and a later call cannot redirect the payload to a path the user controls.
+pub fn set_shell_resource_dir(dir: PathBuf) {
+    let _ = SHELL_RESOURCE_DIR.set(dir);
+}
+
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn linux_resources_root(exe: &Path) -> Option<PathBuf> {
+fn shell_resource_dir() -> Option<&'static Path> {
+    SHELL_RESOURCE_DIR.get().map(PathBuf::as_path)
+}
+
+/// The resource root of an installed app, decided by two candidates and nothing else: the
+/// directory the shell reported when it exists, and the sibling of the binary
+/// (`<exe dir>/../lib/<binary name>`, the `~/.local` install). A binary run from a build tree has
+/// neither, so it reports no bundle and only the debug overrides can point it somewhere.
+pub fn resolve_root(exe: &Path, resource_dir: Option<&Path>) -> Option<PathBuf> {
+    if let Some(root) = resource_dir.map(fs::canonicalize).and_then(Result::ok) {
+        if root.is_dir() {
+            return Some(root);
+        }
+    }
     let name = exe.file_stem()?.to_string_lossy().to_string();
     let beside = exe.parent()?.parent()?.join("lib").join(&name);
-    if let Ok(root) = fs::canonicalize(&beside) {
-        return Some(root);
-    }
-    let system = PathBuf::from("/usr/lib").join(&name);
-    system.is_dir().then_some(system)
+    fs::canonicalize(beside).ok().filter(|root| root.is_dir())
 }
 
 /// The private runtime root, if it has a muxer plus a 10.x host/fxr and 10.x app runtime.
@@ -288,24 +306,99 @@ mod tests {
     }
 
     #[test]
-    fn the_linux_resource_root_sits_beside_the_binary() {
+    fn the_package_layout_is_the_directory_the_shell_resolved() {
+        let temp = tempfile::tempdir().unwrap();
+        // The deb layout: the binary is `/usr/bin/openridr`, the payload `/usr/lib/OpenRidr`.
+        let bin = temp.path().join("usr/bin");
+        fs::create_dir_all(&bin).unwrap();
+        let exe = bin.join("openridr");
+        fs::write(&exe, "").unwrap();
+        let package = temp.path().join("usr/lib/OpenRidr");
+        fs::create_dir_all(&package).unwrap();
+        assert_eq!(
+            resolve_root(&exe, Some(&package)),
+            Some(fs::canonicalize(&package).unwrap()),
+            "the package puts the payload under the product name, not the binary name"
+        );
+    }
+
+    #[test]
+    fn the_user_local_layout_sits_beside_the_binary() {
         let temp = tempfile::tempdir().unwrap();
         let bin = temp.path().join("bin");
         fs::create_dir_all(&bin).unwrap();
-        // A name no system install can have, so `/usr/lib/<name>` never decides this test.
         let exe = bin.join("openridr-resource-root-test");
         fs::write(&exe, "").unwrap();
-        assert_eq!(
-            linux_resources_root(&exe),
-            None,
-            "nothing next to the binary"
-        );
         let lib = temp.path().join("lib/openridr-resource-root-test");
         fs::create_dir_all(&lib).unwrap();
         assert_eq!(
-            linux_resources_root(&exe),
+            resolve_root(&exe, None),
             Some(fs::canonicalize(&lib).unwrap()),
             "<exe dir>/../lib/<binary name> is the resource root"
+        );
+        assert_eq!(
+            resolve_root(&exe, Some(&temp.path().join("usr/lib/OpenRidr"))),
+            Some(fs::canonicalize(&lib).unwrap()),
+            "a resource directory that does not exist falls back to the sibling"
+        );
+    }
+
+    #[test]
+    fn a_build_tree_has_no_resource_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let bin = temp.path().join("target/release");
+        fs::create_dir_all(&bin).unwrap();
+        // A name no install can have, so a real `/usr/lib/<name>` never decides this test.
+        let exe = bin.join("openridr-resource-root-test");
+        fs::write(&exe, "").unwrap();
+        assert_eq!(resolve_root(&exe, None), None, "nothing next to the binary");
+        assert_eq!(
+            resolve_root(&exe, Some(&temp.path().join("usr/lib/OpenRidr"))),
+            None,
+            "a resource directory that does not exist is not a root"
+        );
+    }
+
+    #[test]
+    #[ignore = "isolated leaf: it registers the process-wide resource directory, so it runs in its own process"]
+    fn the_registered_package_directory_resolves_the_bundled_adapter_isolated() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _home = crate::test_harness::EnvVar::set("OPENRIDR_HOME", home.path());
+        let _probe = crate::test_harness::EnvVar::remove("OPENRIDR_ENABLE_PROBE");
+        // The deb layout: the binary is `/usr/bin/openridr` and the payload `/usr/lib/OpenRidr`,
+        // so nothing beside the binary can answer for it.
+        let package = temp.path().join("usr/lib/OpenRidr");
+        let adapter = package.join("netcoredbg/netcoredbg");
+        fs::create_dir_all(adapter.parent().unwrap()).unwrap();
+        fs::write(
+            &adapter,
+            "#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1\n'\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&adapter, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert!(
+            resources_root().is_none(),
+            "the test binary runs outside an install"
+        );
+        set_shell_resource_dir(package.clone());
+        assert_eq!(resources_root(), Some(fs::canonicalize(&package).unwrap()));
+        assert_eq!(
+            crate::debugger::bundled_binary(),
+            Some(fs::canonicalize(&adapter).unwrap()),
+            "the bundled adapter is where the package puts it"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_registered_package_directory_resolves_the_bundled_adapter() {
+        crate::test_harness::run_isolated_leaf(
+            "bundled::tests::the_registered_package_directory_resolves_the_bundled_adapter_isolated",
         );
     }
 
