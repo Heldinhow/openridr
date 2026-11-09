@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=OpenRidr
+GenericName=C# IDE
+Comment=IDE for C# solutions and .NET projects
+Exec=openridr %F
+Icon=openridr
+Terminal=false
+Categories=Development;IDE;
+Keywords=dotnet;csharp;ide;editor;debugger;
+StartupWMClass=openridr

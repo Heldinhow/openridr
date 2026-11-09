@@ -261,6 +261,12 @@ fn main() {
             update::restart_app
         ])
         .setup(|app| {
+            // A package install puts the payload under the product name (`/usr/lib/OpenRidr` for
+            // the deb, `$APPDIR/usr/lib/OpenRidr` for the AppImage), which is not beside the
+            // binary; the shell is the only one that knows the directory, so it hands it over.
+            if let Ok(dir) = app.path().resource_dir() {
+                app.state::<Arc<Host>>().set_resource_dir(dir);
+            }
             let cwd = std::env::current_dir().ok();
             if let Some(path) = launch_path(std::env::args(), cwd.as_deref()) {
                 offer_open(app.handle(), path);

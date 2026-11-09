@@ -2010,6 +2010,50 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
   (sai o `shortcut:` de `resolve_without_pin`) e um teste de fronteira em `crates/host/tests/host.rs`.
   Nenhum `data-testid` tocado.
 
+## 2026-11-09 — O OpenRidr instala no Linux: pacote, AppImage e atalho no menu (issue #322)
+
+- **A decisão.** O build do Linux passa a produzir `.deb` e `.AppImage`, e o repositório ganha uma
+  instalação user-local sem root. Os três caminhos põem o app no menu de aplicativos com a mesma
+  entrada, e o app instalado acha o netcoredbg onde o pacote o põe: o setup chega a `ready` sem baixar
+  o adaptador. O macOS não muda.
+- **Onde mora.** `src-tauri/tauri.linux.conf.json` (o merge RFC 7396 que a #318 criou) declara
+  `bundle.targets` `["deb","appimage"]`, `bundle.category`, `deb.section`/`deb.depends`/
+  `deb.desktopTemplate` e `fileAssociations` vazio. O `tauri.conf.json` base continua com
+  `["app","dmg"]` — e no Linux esses dois alvos não são erro, são ignorados com um warning, que é por
+  que o build de hoje termina sem produzir pacote nenhum.
+- **O layout do pacote não é o que o host procurava.** Lido na fonte do bundler (2.10.4): binário em
+  `/usr/bin/<nome do binário>`, recursos em `/usr/lib/<nome do produto>` (`OpenRidr`, maiúsculo),
+  `.desktop` em `/usr/share/applications/<nome do produto>.desktop`, ícone em
+  `hicolor/<W>x<H>/apps/<nome do binário>.png`, e o pacote deb recebe o kebab-case do nome do produto
+  (`open-ridr`). A #318 fez o host procurar `<dir do exe>/../lib/<nome do binário>`, que é o layout da
+  instalação user-local e **não** o do pacote: sem ajuste, o deb instalaria e o setup bloquearia com
+  "reinstale o OpenRidr". A resolução passa a receber o `resource_dir()` do Tauri pelo shell e a cair
+  para o irmão do binário quando ele não existir — dois candidatos, cada um exato para um caminho de
+  instalação, sem duplicar o nome do produto dentro do host.
+- **Nomes derivados, aceitos e documentados.** Renomear o pacote não é configurável, e forçar
+  `mainBinaryName` mudaria o nome do binário e a resolução dos recursos; a inconsistência
+  (`open-ridr` / `openridr` / `OpenRidr`) custa menos que um fork do bundler.
+- **Uma entrada de menu, dois consumidores.** Um template `.desktop` no repositório serve o deb
+  (`deb.desktopTemplate`) e o script de instalação, que troca o `Exec` pelo caminho absoluto — sessão
+  gráfica frequentemente não tem `~/.local/bin` no `PATH`. O default do Tauri não serve: sai com
+  `Categories=` vazio e sem `%F`, então não aceita arquivo como argumento.
+- **`Depends` declarado à mão.** O bundler não calcula dependência nenhuma; sem `Depends` o pacote
+  instala e o app morre com biblioteca faltando. Entram `libwebkit2gtk-4.1-0` e
+  `libgtk-3-0 | libgtk-3-0t64` (a alternativa cobre a renomeação t64 do Ubuntu 24.04+). O deb não foi
+  instalado num Debian real: fica como não verificado.
+- **Sem MIME no Linux nesta frente.** As `fileAssociations` do macOS têm `mimeType` genérico
+  (`text/plain`, `text/xml`); herdadas no Linux, o `.desktop` reivindicaria todo arquivo de texto. No
+  Linux elas ficam vazias e o "abrir com" por MIME próprio vira issue filha.
+- **O AppImage entra sob condição.** Só se o build usar o que o bundler já baixa (linuxdeploy e
+  AppRun) e buildar em `aarch64`; exigir ferramenta nova ou não buildar o tira da frente.
+- **O que não muda.** macOS (config, build, assinatura, layout), `AGENTS.md`, workflows e
+  dependências. O comando novo entra em `package.json` (`app:install:linux`) e em
+  `docs/install-app.md`.
+- **Consequência.** `src-tauri/tauri.linux.conf.json`, o template `.desktop`,
+  `crates/host/src/bundled.rs` e `src-tauri/src/main.rs` (passa o `resource_dir()`),
+  `scripts/install-app-linux.sh`, `tests/shell/install-app-linux.test.sh`, `package.json`,
+  `docs/install-app.md`, `docs/README.md` e `docs/evidence/linux-packaging.md`. Nenhum `data-testid`
+  tocado, nenhuma dependência nova.
 ## 2026-11-08 — Tela de boas-vindas respeita a plataforma (#319)
 
 O botão **Open** deixa de ser um beco sem saída fora do macOS. `workspace.pick` continua sendo o único contrato: o host responde `{ path }`, `{ path: null }` no cancelamento ou o erro `pick_unavailable`. A UI trata `pick_unavailable` como **estado**, não como erro — o campo de caminho aparece com foco e uma linha de status discreta, sem banner vermelho. O campo é permanente no Linux e no Windows e continua escondido no macOS (a aparência verificada não muda); o build de browser/E2E, que não tem seletor nativo, sempre o mostra. `~` e `~/…` são expandidos pelo host (`expand_home`, contra `HOME`/`USERPROFILE`) e todo o resto é tomado como digitado, inclusive `~user` e um til no meio do caminho.
@@ -2070,3 +2114,36 @@ Consequência: `crates/host/src/lib.rs` (`expand_home`, `home_dir`, `pick_unavai
 - **O que não muda.** `workspace.pick` continua devolvendo `{ path }`, `{ path: null }` no cancelamento ou `pick_unavailable`; o caminho escolhido entra no mesmo `workspace.open` (expansão de `~`, canonicalize, confinamento, trust). Nenhum `data-testid` tocado e nenhuma mudança de UI: o campo de caminho continua permanente no Linux/Windows e escondido no macOS.
 - **Limite conhecido.** O diálogo é aberto sem `parent_window` (o Tauri/tao não exporta um handle `xdg-foreign`), então ele não é modal em relação à janela do app; no Hyprland ele aparece como uma janela própria do backend GTK do portal. `pick_unavailable` cobre "sem barramento de sessão", "sem portal" e "sem backend de file chooser"; o detalhe vai para o stderr, não para a tela.
 - **Consequência.** `src-tauri/Cargo.toml`, `src-tauri/src/{main,picker}.rs`, `crates/host/src/lib.rs` (`FilePicker`, `set_file_picker`, `pick_workspace` com hook) e um teste de fronteira em `crates/host/tests/host.rs`. Evidência em `docs/evidence/picker-linux.md`.
+
+## 2026-11-09 — O pacote Linux: o que o bundler faz e a configuração compensa (#323, #324, #325)
+
+- **O template `.desktop` é literal, sem variável do Handlebars.** O `deb.desktopTemplate` é
+  renderizado com `categories`, `comment`, `exec`, `icon`, `keywords` e `name`, mas o default do
+  Tauri sai com `Categories=` vazio e sem `%F`; um template com variáveis herdaria esses campos do
+  `bundle.*` e do nome do produto. Escrito à mão, o mesmo arquivo serve o deb, o AppImage e o
+  script de instalação, e o script só troca a linha `Exec`.
+- **`128x128@2x.png` não é um ícone de 256 px para o deb.** O bundler deriva o diretório do *nome do
+  arquivo* e produziu `hicolor/256x256@2/apps/openridr.png`, que não é um tamanho que o tema
+  conheça. A lista `bundle.icon` do Linux passa a declarar `icons/256x256.png` (o mesmo PNG), e o
+  pacote ganha `hicolor/256x256/apps/openridr.png`. A lista fica no `tauri.linux.conf.json`, então o
+  macOS continua com a dele.
+- **`StartupWMClass` é o nome do binário.** Medido com `hyprctl clients` no app rodando: a classe é
+  `openridr`, não `OpenRidr` nem o identificador do bundle.
+- **`Depends` duplica o que o bundler já põe.** Ele acrescenta `libwebkit2gtk-4.1-0` e `libgtk-3-0`
+  à lista declarada; a duplicata é inofensiva (`dpkg` lê `Depends` como conjunto) e a alternativa
+  `libgtk-3-0 | libgtk-3-0t64` é o motivo de declarar.
+- **A resolução de recursos tem dois candidatos, não três.** O `resource_dir()` do shell (deb:
+  `/usr/lib/OpenRidr`; AppImage: `$APPDIR/usr/lib/OpenRidr`) e o irmão do binário
+  (`<exe dir>/../lib/<nome do binário>`, a instalação user-local). O `/usr/lib/<nome do binário>`
+  fixo que a #318 tinha sai: ele nunca é o layout de nada que este repositório instala, e o
+  `resource_dir()` já cobre a instalação de sistema. O diretório é registrado uma vez
+  (`OnceLock`), porque um processo roda uma instalação.
+- **O script de instalação não tem `--binary`.** A interface pública é `--prefix`; o binário e o
+  payload de um build já feito entram por `OPENRIDR_INSTALL_BINARY` e `OPENRIDR_INSTALL_PAYLOAD`,
+  que é o que o teste de shell usa para não compilar o Tauri. Sem eles, o script compila com
+  `tauri build --no-bundle`.
+- **Consequência.** `src-tauri/tauri.linux.conf.json`, `src-tauri/linux/openridr.desktop`,
+  `src-tauri/icons/256x256.png`, `crates/host/src/{bundled,lib}.rs`, `src-tauri/src/main.rs`,
+  `scripts/install-app-linux.sh`, `tests/shell/install-app-linux.test.sh`, `package.json`,
+  `docs/install-app.md` e `docs/evidence/linux-packaging.md`. Nenhum `data-testid`, nenhuma
+  dependência nova, `AGENTS.md` e workflows intocados.

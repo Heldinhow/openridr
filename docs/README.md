@@ -90,6 +90,7 @@ Convenção para trabalho novo: a spec é o **corpo da issue-mãe** e cada ticke
 | Pre-commit proporcional ao diff (#265): só documentação não paga check, sem `node_modules` a mensagem manda rodar `bun install` | [SPEC-PRECOMMIT-PROPORTIONAL](SPEC-PRECOMMIT-PROPORTIONAL.md) | #271 (GitHub) | [RETRO-PRECOMMIT-PROPORTIONAL](RETRO-PRECOMMIT-PROPORTIONAL.md) | [evidence/precommit-proportional.md](evidence/precommit-proportional.md) |
 | Risk tier lê o caminho cru que o git cita (#276): nome não-ASCII deixa de subir o tier | [SPEC-RISK-TIER-QUOTED-PATHS](SPEC-RISK-TIER-QUOTED-PATHS.md) | #276 (GitHub) | [RETRO-RISK-TIER-QUOTED-PATHS](RETRO-RISK-TIER-QUOTED-PATHS.md) | [evidence/risk-tier-quoted-paths.md](evidence/risk-tier-quoted-paths.md) |
 | E2E recusa a rodada abaixo do piso duro de disco (#270): o config mede o `$TMPDIR` antes de subir servidor | [SPEC-E2E-DISK-FLOOR](SPEC-E2E-DISK-FLOOR.md) | #287 (GitHub) | [RETRO-E2E-DISK-FLOOR](RETRO-E2E-DISK-FLOOR.md) | [evidence/e2e-disk-floor.md](evidence/e2e-disk-floor.md) |
+| Instalar no Linux (#322): `.deb`, `.AppImage` e atalho no menu | — (issue #322) | #322 (GitHub) | — | [evidence/linux-packaging.md](evidence/linux-packaging.md) |
 Decisão: netcoredbg 3.2.0-1092, csharp-ls 0.28.0 e o runtime .NET 10.0.14 privado são embutidos no bundle; o SDK do projeto continua externo (resolvido por `global.json`). Download de ferramentas no primeiro uso deixou de existir no app/DMG; o fluxo de download continua só como fallback de `tauri dev`.
 
 `decisions.md`, `GLOSSARY.md` e a tabela acima são **append-only**: cada frente acrescenta a sua linha e
@@ -107,5 +108,6 @@ Numeração de tickets nas pastas históricas **reinicia por pasta** (`tickets/0
 | [nav-retest.md](nav-retest.md), [RIDR-VS-RIDER.md](RIDR-VS-RIDER.md), [UI-AUDIT.md](UI-AUDIT.md) | retestes e auditorias datados de 28–29/10 |
 | `superpowers/plans/` | plano de aproximação visual (29/10) |
 | `evidence/` (screenshots, logs) | parte da evidência bruta foi removida do repositório público (capturas com caminhos pessoais, referências de software proprietário); os `evidence/*.md` marcam o que não está mais aqui |
+| Pacote Linux (.deb, AppImage, atalho no menu) | issue [#322](https://github.com/Heldinhow/openridr/issues/322) | #323–#325 | — | [evidence/linux-packaging.md](evidence/linux-packaging.md) |
 
 Specs/tickets antigos mantêm `Status: ready-for-agent` no cabeçalho por serem anteriores à implementação: o estado real está nas retros e no `git log`.
