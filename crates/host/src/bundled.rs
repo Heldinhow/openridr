@@ -394,7 +394,9 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    // Linux only: the package layout is a Linux install, and on macOS `resources_root()` answers
+    // from `Contents/Resources` whatever the executable's neighbours are.
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_registered_package_directory_resolves_the_bundled_adapter() {
         crate::test_harness::run_isolated_leaf(
