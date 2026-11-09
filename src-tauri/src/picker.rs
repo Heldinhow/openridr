@@ -221,5 +221,21 @@ mod tests {
             "a(sa(us))",
             "the portal only accepts the documented filter shape"
         );
+        let filters: Vec<(String, Vec<(u32, String)>)> = options["filters"]
+            .try_clone()
+            .expect("filters clone")
+            .downcast()
+            .expect("filters are a(sa(us))");
+        assert_eq!(filters[0].0, "Solutions and projects");
+        assert_eq!(
+            filters[0]
+                .1
+                .iter()
+                .map(|(_, pattern)| pattern.as_str())
+                .collect::<Vec<_>>(),
+            ["*.sln", "*.slnx", "*.csproj"]
+        );
+        assert_eq!(filters[1].0, "All files");
+        assert_eq!(filters[1].1, vec![(0u32, "*".to_string())]);
     }
 }
