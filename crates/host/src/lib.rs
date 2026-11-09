@@ -121,6 +121,10 @@ pub const EXECUTABLE_METHODS: &[&str] = &[
     "nuget.applyUpdate",
 ];
 
+/// The shell's native file chooser, registered when the platform dialog cannot live in the host
+/// (the Linux portal needs a D-Bus connection that outlives one call).
+type FilePicker = Arc<dyn Fn() -> HostResult<Value> + Send + Sync>;
+
 pub struct Host {
     inner: Mutex<Inner>,
 }
@@ -197,6 +201,8 @@ struct Inner {
     nuget_batch: Option<Vec<nuget::Plan>>,
     nuget_batch_id: Option<String>,
     diagnostics: diagnostics::Store,
+    /// `None` keeps the platform default: `osascript` on macOS, `pick_unavailable` elsewhere.
+    file_picker: Option<FilePicker>,
 }
 
 struct Workspace {
@@ -471,8 +477,18 @@ impl Host {
                 nuget_batch: None,
                 nuget_batch_id: None,
                 diagnostics: diagnostics::Store::new(),
+                file_picker: None,
             }),
         }
+    }
+
+    /// Registers the shell's native file chooser. `workspace.pick` calls it instead of the
+    /// platform default, so the host keeps the contract while the shell owns the dialog.
+    pub fn set_file_picker<F>(&self, picker: F)
+    where
+        F: Fn() -> HostResult<Value> + Send + Sync + 'static,
+    {
+        self.inner.lock().unwrap().file_picker = Some(Arc::new(picker));
     }
 
     pub fn dispatch(&self, method: &str, params: Value) -> HostResult<Value> {
@@ -744,7 +760,7 @@ impl Host {
             return Ok(recent::list());
         }
         if method == "workspace.pick" {
-            return pick_workspace();
+            return pick_workspace(self);
         }
         if method == "git.path" {
             return Ok(json!({ "path": git::path() }));
@@ -9095,10 +9111,20 @@ fn expand_home(raw: &str, home: Option<&Path>) -> PathBuf {
     }
 }
 
-/// Native file chooser for the welcome screen. macOS keeps `osascript` (the verified target);
-/// elsewhere the UI is told the chooser is unavailable and offers the path field instead.
-/// Returns `{ "path": null }` when the user cancels. No lock is held while it is open.
-fn pick_workspace() -> HostResult<Value> {
+/// Native file chooser for the welcome screen. A picker registered by the shell wins; otherwise
+/// macOS keeps `osascript` (the verified target) and every other platform tells the UI the
+/// chooser is unavailable, which is the path field's cue. Returns `{ "path": null }` when the
+/// user cancels. No lock is held while it is open.
+fn pick_workspace(host: &Host) -> HostResult<Value> {
+    // Clone the hook out of the lock: the dialog can stay open for as long as the user takes.
+    let picker = host.inner.lock().unwrap().file_picker.clone();
+    match picker {
+        Some(picker) => picker(),
+        None => pick_workspace_platform(),
+    }
+}
+
+fn pick_workspace_platform() -> HostResult<Value> {
     if !cfg!(target_os = "macos") {
         return Err(HostError::new(
             "pick_unavailable",
