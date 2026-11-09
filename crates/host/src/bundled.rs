@@ -1,8 +1,11 @@
 //! Analysis tools shipped inside the app bundle.
 //!
-//! macOS ARM64 only: `Contents/Resources/csharp-ls` holds the csharp-ls 0.28.0 payload and
+//! macOS ARM64: `Contents/Resources/csharp-ls` holds the csharp-ls 0.28.0 payload and
 //! `Contents/Resources/dotnet` holds the private `Microsoft.NETCore.App` 10 runtime that
 //! executes it. The project SDK is never bundled and is still resolved from `global.json`.
+//! Linux: the same resource root sits next to the binary, in the Tauri resource directory
+//! (`<exe dir>/../lib/<binary name>`, or `/usr/lib/<binary name>` for a system install); only
+//! netcoredbg ships there today, and the analysis pair keeps its download flow.
 //! Debug builds may point both roots elsewhere (`OPENRIDR_BUNDLED_CSHARP_LS`,
 //! `OPENRIDR_BUNDLED_DOTNET_ROOT`) so tests and isolated runs exercise the bundled path without
 //! a real app bundle. Nothing here downloads, installs or executes a process.
@@ -31,7 +34,7 @@ pub const RUNTIME_DIR: &str = "dotnet";
 pub const CSHARP_LS_ENTRY: &str = "CSharpLanguageServer.dll";
 
 fn supported() -> bool {
-    cfg!(all(target_os = "macos", target_arch = "aarch64"))
+    cfg!(all(target_os = "macos", target_arch = "aarch64")) || cfg!(target_os = "linux")
 }
 
 #[cfg(debug_assertions)]
@@ -46,14 +49,39 @@ fn override_path(_key: &str) -> Option<PathBuf> {
     None
 }
 
-/// `Contents/Resources` of the running app. `None` outside the distributed platform, and for
-/// binaries that are not inside an app bundle (`tauri dev`, `cargo test`, the HTTP bridge).
+/// The resource directory of the running app: `Contents/Resources` on macOS ARM64 and the
+/// Tauri resource directory on Linux. `None` outside the distributed platforms, and for
+/// binaries that are not installed next to their resources (`tauri dev`, `cargo test`, the
+/// HTTP bridge).
 pub fn resources_root() -> Option<PathBuf> {
-    if !supported() {
-        return None;
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        let exe = env::current_exe().ok()?;
+        Some(exe.parent()?.parent()?.join("Resources"))
     }
-    let exe = env::current_exe().ok()?;
-    Some(exe.parent()?.parent()?.join("Resources"))
+    #[cfg(target_os = "linux")]
+    {
+        linux_resources_root(&env::current_exe().ok()?)
+    }
+    #[cfg(not(any(all(target_os = "macos", target_arch = "aarch64"), target_os = "linux")))]
+    {
+        None
+    }
+}
+
+/// Tauri's Linux resource directory, resolved from the binary and never from the working
+/// directory: `<exe dir>/../lib/<binary name>` when it exists (a `~/.local` or `/usr` install),
+/// else the system `/usr/lib/<binary name>`. A binary run from a build tree has neither, so it
+/// reports no bundle and only the debug overrides can point it somewhere.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn linux_resources_root(exe: &Path) -> Option<PathBuf> {
+    let name = exe.file_stem()?.to_string_lossy().to_string();
+    let beside = exe.parent()?.parent()?.join("lib").join(&name);
+    if let Ok(root) = fs::canonicalize(&beside) {
+        return Some(root);
+    }
+    let system = PathBuf::from("/usr/lib").join(&name);
+    system.is_dir().then_some(system)
 }
 
 /// The private runtime root, if it has a muxer plus a 10.x host/fxr and 10.x app runtime.
@@ -257,6 +285,28 @@ mod tests {
         fs::create_dir_all(root.join("host/fxr").join(fxr)).unwrap();
         fs::create_dir_all(root.join("shared/Microsoft.NETCore.App").join(app)).unwrap();
         fs::write(muxer(root), "").unwrap();
+    }
+
+    #[test]
+    fn the_linux_resource_root_sits_beside_the_binary() {
+        let temp = tempfile::tempdir().unwrap();
+        let bin = temp.path().join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        // A name no system install can have, so `/usr/lib/<name>` never decides this test.
+        let exe = bin.join("openridr-resource-root-test");
+        fs::write(&exe, "").unwrap();
+        assert_eq!(
+            linux_resources_root(&exe),
+            None,
+            "nothing next to the binary"
+        );
+        let lib = temp.path().join("lib/openridr-resource-root-test");
+        fs::create_dir_all(&lib).unwrap();
+        assert_eq!(
+            linux_resources_root(&exe),
+            Some(fs::canonicalize(&lib).unwrap()),
+            "<exe dir>/../lib/<binary name> is the resource root"
+        );
     }
 
     #[test]

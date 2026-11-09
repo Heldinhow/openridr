@@ -2,10 +2,12 @@
 //!
 //! The approved release is Samsung's `3.2.0-1092`. Installing it is allowed only on a platform
 //! with a published asset that this build is allowed to use. macOS arm64 is experimental and
-//! unverified, macOS Intel has no asset in that release, and Linux ships a `.tar.gz` this build
-//! does not extract. The plan is read-only and lists the asset and the published SHA-256; the
-//! archive is downloaded over HTTPS from the official hosts, hashed, extracted with traversal,
-//! symlink and size checks, and only then verified (`--version`) and promoted.
+//! unverified, macOS Intel has no asset in that release, and Linux never downloads: the build
+//! embeds the official `.tar.gz` for its architecture (SHA-256 pinned in
+//! `scripts/vendor-netcoredbg.sh`), so the runtime only resolves and verifies that executable.
+//! The plan is read-only and lists the asset and the published SHA-256; where the installer is
+//! allowed, the archive is downloaded over HTTPS from the official hosts, hashed, extracted with
+//! traversal, symlink and size checks, and only then verified (`--version`) and promoted.
 
 use crate::error::{HostError, HostResult};
 use crate::logbuf::LogBuffer;
@@ -88,9 +90,9 @@ const PUBLISHED: &[PublishedAsset] = &[
         sha256: "080eb3b2d2152465f599d3b33d1ee6e747794e11cc0a3773ec689f5e5f2c5afa",
         archive: "tar.gz",
         support: "official",
-        availability: "unsupported_archive",
+        availability: "bundled",
         reason: Some(
-            "Linux is outside the P0 matrix and this build extracts zip archives only; a .tar.gz is never substituted or unpacked by another tool.",
+            "Embedded in the Linux build at build time: the build verifies this SHA-256 and extracts the .tar.gz into the app, so the runtime never downloads or unpacks it.",
         ),
     },
     PublishedAsset {
@@ -100,9 +102,9 @@ const PUBLISHED: &[PublishedAsset] = &[
         sha256: "065ff49badec8a695dbea2de6ab6a330c774a191e426a217ab8cc05250627ccb",
         archive: "tar.gz",
         support: "official",
-        availability: "unsupported_archive",
+        availability: "bundled",
         reason: Some(
-            "Linux is outside the P0 matrix and this build extracts zip archives only; a .tar.gz is never substituted or unpacked by another tool.",
+            "Embedded in the Linux build at build time: the build verifies this SHA-256 and extracts the .tar.gz into the app, so the runtime never downloads or unpacks it.",
         ),
     },
 ];
@@ -134,9 +136,26 @@ fn bundled_root() -> Option<PathBuf> {
     Some(crate::bundled::resources_root()?.join("netcoredbg"))
 }
 
-/// The adapter shipped inside the app bundle, if this ARM64 macOS build has one.
+/// The adapter shipped inside the app bundle, if this build has one for the platform it runs on.
 pub fn bundled_binary() -> Option<PathBuf> {
-    find_executable(&bundled_root()?, binary_name("osx-arm64"))
+    let platform = platform_key(std::env::consts::OS, std::env::consts::ARCH);
+    find_executable(&bundled_root()?, binary_name(platform))
+}
+
+/// The bundled adapter, when `platform` is the one this binary runs on. The debug override is
+/// the test seam that stands in for a bundle, so it answers for whatever platform the caller
+/// asks about; release builds never read it.
+fn bundled_for(platform: &str) -> Option<PathBuf> {
+    #[cfg(debug_assertions)]
+    if std::env::var_os(BUNDLED_OVERRIDE).is_some() {
+        return bundled_binary();
+    }
+    let own = platform_key(std::env::consts::OS, std::env::consts::ARCH);
+    if platform == own {
+        bundled_binary()
+    } else {
+        None
+    }
 }
 
 pub fn staging() -> PathBuf {
@@ -392,7 +411,10 @@ fn plan_id(plan: &Plan) -> String {
 /// allow the installer to run.
 struct Gate {
     state: &'static str,
+    /// The download installer may run on this platform.
     installable: bool,
+    /// The adapter this build embeds may satisfy the gate on this platform.
+    bundled: bool,
     code: Option<&'static str>,
     message: String,
 }
@@ -404,6 +426,7 @@ fn gate(os: &str, arch: &str, experimental: bool, controlled: bool) -> Gate {
             return Gate {
                 state: "experimental_disabled",
                 installable: false,
+                bundled: false,
                 code: Some("experimental_required"),
                 message: "Controlled test artifact: the installer pipeline is forced by OPENRIDR_ENABLE_PROBE=1, but the Apple Silicon experimental flag is still required. It is not an official asset."
                     .to_string(),
@@ -412,6 +435,7 @@ fn gate(os: &str, arch: &str, experimental: bool, controlled: bool) -> Gate {
         return Gate {
             state: "not_checked",
             installable: true,
+            bundled: false,
             code: None,
             message: "Controlled test artifact: the installer pipeline is forced to this platform by OPENRIDR_ENABLE_PROBE=1. It is not an official asset."
                 .to_string(),
@@ -421,6 +445,7 @@ fn gate(os: &str, arch: &str, experimental: bool, controlled: bool) -> Gate {
         ("macos", "aarch64") if experimental => Gate {
             state: "not_checked",
             installable: true,
+            bundled: true,
             code: None,
             message: format!(
                 "Apple Silicon debugger: experimental · enabled. The official {VERSION} osx-arm64 asset is available with explicit consent and a SHA-256 from the release metadata. It is community supported ({COMMUNITY}) and DAP is unproven until ticket 14."
@@ -429,6 +454,7 @@ fn gate(os: &str, arch: &str, experimental: bool, controlled: bool) -> Gate {
         ("macos", "aarch64") => Gate {
             state: "experimental_disabled",
             installable: false,
+            bundled: false,
             code: Some("experimental_required"),
             message: format!(
                 "Apple Silicon debugger: experimental · disabled. The official {VERSION} osx-arm64 asset exists, but it is community supported ({COMMUNITY}) so installation stays refused until you enable the experimental flag. Debug is blocked."
@@ -437,6 +463,7 @@ fn gate(os: &str, arch: &str, experimental: bool, controlled: bool) -> Gate {
         ("macos", "x86_64") => Gate {
             state: "unavailable",
             installable: false,
+            bundled: false,
             code: Some("unsupported_platform"),
             message: format!(
                 "Unavailable on macOS Intel: the {VERSION} release publishes no osx-x64 asset. Installation and Debug are blocked and no other version or asset is substituted."
@@ -445,22 +472,34 @@ fn gate(os: &str, arch: &str, experimental: bool, controlled: bool) -> Gate {
         ("windows", "x86_64") => Gate {
             state: "not_checked",
             installable: true,
+            bundled: false,
             code: None,
             message: format!(
                 "Windows x64: the official {VERSION} win64 asset is published. Installation is available and gated by OS/arch; it has not been executed here, and Debug still needs the DAP work of ticket 14."
             ),
         },
+        ("linux", "x86_64") | ("linux", "aarch64") => Gate {
+            state: "not_checked",
+            installable: false,
+            bundled: true,
+            code: Some("unsupported_archive"),
+            message: format!(
+                "Linux: netcoredbg {VERSION} is embedded in this build at build time (the official .tar.gz is verified by SHA-256 and extracted when the app is built). Nothing is downloaded or installed at runtime; a session verifies the bundled executable with --version before launching."
+            ),
+        },
         ("linux", _) => Gate {
             state: "unavailable",
             installable: false,
+            bundled: false,
             code: Some("unsupported_platform"),
             message: format!(
-                "Unavailable on Linux: {VERSION} ships a .tar.gz and this build extracts zip archives only. Linux is outside the P0 matrix; no other asset is substituted."
+                "Unsupported Linux architecture {arch}: the {VERSION} release publishes no verified compatible asset for it and nothing is substituted."
             ),
         },
         _ => Gate {
             state: "unavailable",
             installable: false,
+            bundled: false,
             code: Some("unsupported_platform"),
             message: format!(
                 "Unsupported platform {os}/{arch}: the {VERSION} release publishes no verified compatible asset for it."
@@ -608,10 +647,8 @@ pub fn plan(os: &str, arch: &str, experimental: bool) -> Plan {
 /// The verified executable at the destination, wherever the archive placed it. A bundled
 /// adapter wins over an older per-user install.
 fn existing_binary(platform: &str) -> Option<PathBuf> {
-    if platform == "osx-arm64" {
-        if let Some(bundled) = bundled_binary() {
-            return Some(bundled);
-        }
+    if let Some(bundled) = bundled_for(platform) {
+        return Some(bundled);
     }
     find_executable(&destination(), binary_name(platform))
 }
@@ -710,6 +747,28 @@ fn verify_binary(binary: &Path) -> Existing {
     }
 }
 
+/// Verifies the bundled executable once per file identity. The snapshot is polled every 400 ms,
+/// so the adapter is spawned only when the path, mtime or size changed (a reinstall or a replaced
+/// file), never on every poll.
+fn verify_bundled(data: &mut Data, binary: &Path) -> Existing {
+    let meta = fs::metadata(binary).ok();
+    let modified = meta.as_ref().and_then(|meta| meta.modified().ok());
+    let size = meta.as_ref().map(|meta| meta.len()).unwrap_or(0);
+    if let Some(check) = &data.bundled_check {
+        if check.path == binary && check.modified == modified && check.size == size {
+            return check.result.clone();
+        }
+    }
+    let result = verify_binary(binary);
+    data.bundled_check = Some(BundledCheck {
+        path: binary.to_path_buf(),
+        modified,
+        size,
+        result: result.clone(),
+    });
+    result
+}
+
 /// The Debug installer is retired for builds that ship the adapter; both entry points and the
 /// pipeline use this single refusal.
 pub fn bundled_refusal() -> HostError {
@@ -732,17 +791,13 @@ pub struct ReadyAdapter {
 /// or planning never runs here.
 pub fn ready_adapter(os: &str, arch: &str, experimental: bool) -> HostResult<ReadyAdapter> {
     let (_os, _arch, platform, gate, _) = current(os, arch, experimental);
-    if !gate.installable {
+    if !gate.installable && !gate.bundled {
         return Err(HostError::new(
             gate.code.unwrap_or("unsupported_platform"),
             format!("Debug was not started: {}", gate.message),
         ));
     }
-    let bundled = if platform == "osx-arm64" {
-        bundled_binary()
-    } else {
-        None
-    };
+    let bundled = bundled_for(&platform);
     let Some(binary) = bundled.clone().or_else(|| existing_binary(&platform)) else {
         return Err(HostError::with_details(
             "tool_missing",
@@ -842,6 +897,15 @@ pub struct View {
     pub busy: bool,
 }
 
+/// A verified (or refused) bundled executable, with the file identity it was verified at.
+#[derive(Debug, Clone)]
+struct BundledCheck {
+    path: PathBuf,
+    modified: Option<SystemTime>,
+    size: u64,
+    result: Existing,
+}
+
 struct Data {
     revision: u64,
     state: &'static str,
@@ -866,6 +930,9 @@ struct Data {
     stale_reason: Option<String>,
     /// What the disk showed the last time it was inspected; `probed` keeps the 400 ms poll cheap.
     installed: Option<Existing>,
+    /// The bundled executable's `--version`, cached by path, mtime and size: the snapshot is
+    /// polled every 400 ms and the adapter must not be spawned on every poll.
+    bundled_check: Option<BundledCheck>,
     probed: bool,
     /// A worker thread is still running (download/extract/verify), even after a cancel request.
     active: bool,
@@ -902,6 +969,7 @@ impl Debugger {
                 sealed: false,
                 stale_reason: None,
                 installed: None,
+                bundled_check: None,
                 probed: false,
                 active: false,
             }),
@@ -927,20 +995,20 @@ impl Debugger {
         }
         let controlled = controlled_asset();
         let gate = gate(&os, &arch, experimental, controlled.is_some());
-        let bundled = if platform == "osx-arm64" {
-            bundled_binary()
-        } else {
-            None
-        };
-        // `inspect_existing` hashes once per process; reuse it instead of hashing on every
-        // 400 ms snapshot.
-        let bundled_sha = bundled.as_ref().and_then(|binary| {
-            data.installed
-                .as_ref()
-                .filter(|existing| existing.binary == binary.to_string_lossy())
-                .and_then(|existing| existing.sha256.clone())
-                .or_else(|| sha256_file(binary))
-        });
+        let bundled = bundled_for(&platform);
+        // `ready` for a bundled adapter means the real executable answered --version with the
+        // approved release, never just that a file exists. The check is cached per file identity
+        // so the 400 ms snapshot does not spawn the adapter on every poll.
+        let bundled_check = bundled
+            .as_ref()
+            .map(|binary| verify_bundled(&mut data, binary));
+        let bundled_sha = bundled_check
+            .as_ref()
+            .and_then(|check| check.sha256.clone());
+        let installed = data
+            .installed
+            .as_ref()
+            .filter(|existing| matches!(existing.state, "present" | "ready"));
         let asset = asset_view(&platform, controlled.as_ref());
         let install_state = data.state;
         // `adapterMessage` always describes the platform/adapter availability; the operation
@@ -954,7 +1022,10 @@ impl Debugger {
             (install_state, gate.message.clone())
         };
         if let Some(binary) = &bundled {
-            if gate.installable {
+            let verified = bundled_check
+                .as_ref()
+                .is_some_and(|check| check.state == "ready");
+            if gate.bundled && verified {
                 state = "ready";
                 message = format!(
                     "Bundled with OpenRidr: netcoredbg {VERSION} at {}{}. No download or install is needed; the session verifies --version before launching.",
@@ -964,17 +1035,43 @@ impl Debugger {
                         .map(|sha| format!(" · SHA-256 {sha}"))
                         .unwrap_or_default()
                 );
+            } else if gate.bundled && !gate.installable {
+                // The bundle is the only source on this platform: one that does not answer
+                // --version with the approved release is damage, never a download.
+                state = "unavailable";
+                message = format!(
+                    "netcoredbg {VERSION} is embedded in this build, but {} did not verify ({}); nothing is downloaded. Reinstall OpenRidr and retry setup.",
+                    binary.display(),
+                    bundled_check
+                        .as_ref()
+                        .and_then(|check| check.reason.clone())
+                        .unwrap_or_else(|| "no verified version".to_string())
+                );
+            } else if gate.bundled {
+                // macOS arm64 with the opt-in: the installer is still an option, so a bundle
+                // that did not verify is reported without closing that path.
+                message.push_str(&format!(
+                    " The bundled netcoredbg at {} did not verify; installing the approved release is still available.",
+                    binary.display()
+                ));
             } else {
                 message.push_str(&format!(
                     " netcoredbg {VERSION} is bundled with OpenRidr at {}; the experimental opt-in is what still blocks Debug.",
                     binary.display()
                 ));
             }
+        } else if gate.bundled && !gate.installable && installed.is_none() {
+            // No bundle and no executable anywhere, on a platform where the bundle is the only
+            // source: damage, never a download, and setup stays blocked until the app is
+            // reinstalled or the file returns.
+            state = "unavailable";
+            message = format!(
+                "netcoredbg {VERSION} is embedded in this build, but no verified executable is at {}; nothing is downloaded. Reinstall OpenRidr and retry setup.",
+                bundled_root()
+                    .map(|root| root.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "the app bundle".to_string())
+            );
         }
-        let installed = data
-            .installed
-            .as_ref()
-            .filter(|existing| matches!(existing.state, "present" | "ready"));
         if state != "ready" && bundled.is_none() {
             if let Some(existing) = installed {
                 message.push_str(&format!(
@@ -996,6 +1093,16 @@ impl Debugger {
             .as_ref()
             .map(|asset| asset.availability)
             .unwrap_or("absent");
+        let availability_reason = data
+            .plan
+            .as_ref()
+            .and_then(|plan| plan.availability_reason.clone())
+            .or_else(|| asset.as_ref().and_then(|asset| asset.reason.clone()))
+            .or_else(|| {
+                Some(format!(
+                    "The {VERSION} release publishes no asset for {os}/{arch}."
+                ))
+            });
         View {
             adapter_state: state,
             bundled: bundled.is_some(),
@@ -1017,15 +1124,7 @@ impl Debugger {
                 .collect(),
             asset,
             availability,
-            availability_reason: data
-                .plan
-                .as_ref()
-                .and_then(|plan| plan.availability_reason.clone())
-                .or_else(|| {
-                    Some(format!(
-                        "The {VERSION} release publishes no asset for {os}/{arch}."
-                    ))
-                }),
+            availability_reason,
             installable: gate.installable && bundled.is_none(),
             gate_reason,
             dap_proven: false,
@@ -1158,7 +1257,7 @@ impl Debugger {
         workspace_id: u64,
         context_id: u64,
     ) -> HostResult<Value> {
-        if bundled_binary().is_some() {
+        if bundled_for(&plan.platform).is_some() {
             return Err(bundled_refusal());
         }
         if let Some(reason) = &plan.blocked_reason {
@@ -2288,9 +2387,29 @@ mod tests {
             Some("experimental_required")
         );
         assert!(gate("macos", "aarch64", true, false).installable);
+        assert!(gate("macos", "aarch64", true, false).bundled);
+        assert!(!gate("macos", "aarch64", false, false).bundled);
         assert!(!gate("macos", "x86_64", true, false).installable);
         assert!(gate("windows", "x86_64", false, false).installable);
-        assert!(!gate("linux", "x86_64", true, false).installable);
+        assert!(!gate("windows", "x86_64", false, false).bundled);
+        // Linux never downloads: the build embeds the adapter, so the gate allows the bundle and
+        // refuses the installer.
+        for arch in ["x86_64", "aarch64"] {
+            let linux = gate("linux", arch, false, false);
+            assert!(!linux.installable, "{arch}");
+            assert!(linux.bundled, "{arch}");
+            assert_eq!(linux.code, Some("unsupported_archive"), "{arch}");
+            assert!(
+                !linux.message.contains("outside the P0 matrix")
+                    && !linux.message.contains("zip archives only"),
+                "{arch}: {}",
+                linux.message
+            );
+        }
+        // An architecture the release does not cover keeps the honest refusal.
+        let unsupported = gate("linux", "arm", false, false);
+        assert!(!unsupported.installable && !unsupported.bundled);
+        assert_eq!(unsupported.code, Some("unsupported_platform"));
     }
 
     #[test]
@@ -2310,6 +2429,51 @@ mod tests {
                 .all(|part| matches!(part, Component::Normal(_) | Component::CurDir));
             assert!(!safe, "{name}");
         }
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[ignore = "isolated leaf: it writes OPENRIDR_* for its own store, so it runs in its own process"]
+    fn linux_bundled_adapter_is_ready_and_a_missing_or_damaged_one_blocks_isolated() {
+        let bundle = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _bundle = EnvVar::set(BUNDLED_OVERRIDE, bundle.path());
+        let _home = EnvVar::set("OPENRIDR_HOME", home.path());
+        let _probe = EnvVar::remove("OPENRIDR_ENABLE_PROBE");
+
+        for arch in ["aarch64", "x86_64"] {
+            let missing = ready_adapter("linux", arch, false).unwrap_err();
+            assert_eq!(missing.code, "tool_missing", "{arch}");
+            assert!(
+                missing.message.contains("is not bundled with this app"),
+                "{arch}: {}",
+                missing.message
+            );
+        }
+
+        let binary = fake_adapter(
+            bundle.path(),
+            "#!/bin/sh\nprintf 'NET Core debugger 3.2.0-1\n'\n",
+        );
+        let ready = ready_adapter("linux", "aarch64", false).unwrap();
+        assert_eq!(ready.binary, binary);
+        assert_eq!(ready.platform, "linux-arm64");
+        assert_eq!(ready.version, "3.2.0");
+        assert_eq!(
+            ready_adapter("linux", "x86_64", false).unwrap().platform,
+            "linux-amd64"
+        );
+
+        fs::write(
+            &binary,
+            "#!/bin/sh\nprintf 'NET Core debugger 3.1.1-1000\n'\n",
+        )
+        .unwrap();
+        let refused = ready_adapter("linux", "aarch64", false).unwrap_err();
+        assert_eq!(refused.code, "tool_missing");
+        assert!(refused
+            .message
+            .contains("bundled netcoredbg did not verify"));
     }
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64", unix))]
@@ -2371,6 +2535,14 @@ mod tests {
             .message
             .contains("bundled netcoredbg did not verify"));
     }
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn linux_bundled_adapter_is_ready_and_a_missing_or_damaged_one_blocks() {
+    crate::test_harness::run_isolated_leaf(
+        "debugger::tests::linux_bundled_adapter_is_ready_and_a_missing_or_damaged_one_blocks_isolated",
+    );
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64", unix))]
