@@ -497,6 +497,9 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 .projects-bar .search-box:focus-within { border-color: var(--accent); outline: 0; box-shadow: 0 0 0 3px rgba(84, 138, 247, 0.24); }
 .projects-bar .search-box input:not([type="checkbox"]):not([type="radio"]) { min-height: calc(var(--control-h) - 2px); padding: 0; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
 .path-form { margin-top: 12px; }
+.path-notice { margin: 0 0 6px; font-size: var(--fs-meta); }
+/* A path that did not open is a line next to the field, not a banner that owns the screen. */
+.open-error { margin: 8px 0 0; font-size: var(--fs-label); }
 .setup .open-row input { font-family: var(--sans); font-size: var(--fs-ui); }
 .setup .notice { margin-top: 12px; border: 1px solid var(--line); border-radius: var(--r-lg); }
 .sdk-warning { margin: 12px 0 0; font-size: var(--fs-label); }

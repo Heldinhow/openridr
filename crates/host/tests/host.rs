@@ -603,6 +603,19 @@ fn the_directory_listing_refuses_escapes_by_shape() {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn the_file_chooser_refuses_where_no_native_dialog_exists() {
+    // The welcome screen keys its path field off this code: a plain failure would be shown as an
+    // error, `pick_unavailable` is the documented "type the path instead" fallback.
+    let host = support::host();
+    let error = host
+        .dispatch("workspace.pick", json!({}))
+        .expect_err("no native chooser off macOS");
+    assert_eq!(error.code, "pick_unavailable");
+    assert!(error.message.contains("type the path"), "{}", error.message);
+}
+
 #[test]
 fn directory_resolution_requires_an_explicit_choice() {
     let host = support::host();

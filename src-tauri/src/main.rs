@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use openridr_host::{Host, HostError};
 use serde_json::Value;
+#[cfg(not(target_os = "linux"))]
 use tauri::menu::{Menu, MenuItemBuilder};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, Url, WindowEvent};
 
@@ -202,13 +203,13 @@ fn default_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     Ok(menu)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn default_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     Menu::default(app)
 }
 
 fn main() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         // Must stay the first plugin: it has to exit a second process before any other setup runs.
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             if let Some(window) = app.get_webview_window("main") {
@@ -218,8 +219,15 @@ fn main() {
                 offer_open(app, path);
             }
         }))
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .menu(default_menu)
+        .plugin(tauri_plugin_updater::Builder::new().build());
+    // Linux gets no menu bar at all: the GTK default menu (Edit, Window, Help) is not this app's
+    // UI, and an empty one would still be a strip above the webview. Its Edit items never owned
+    // cut/copy/paste/select-all — muda only sets the accelerator label, and the action behind it is
+    // X11-only via libxdo — so dropping the bar does not take those keys away. Windows keeps the
+    // default menu it has always had.
+    #[cfg(not(target_os = "linux"))]
+    let builder = builder.menu(default_menu);
+    builder
         .on_menu_event(|app, event| {
             if event.id() == QUIT_MENU_ID {
                 request_quit(app);
