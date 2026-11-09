@@ -4059,6 +4059,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             editedAt={editedAt}
             onNavigate={(path, position) => void navigateTo(path, position)}
             onOpen={(path) => void openUserFile(path)}
+            onRestartAnalysis={trusted ? () => void startAnalysis() : null}
+            restartAnalysisReason={trusted ? lspStartBlocker(snapshot) : null}
           />
         );
       case "debug":
@@ -4685,23 +4687,27 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             </div>
           )}
 
-          {evaluation.staleReason && (
+          {evaluationBusy ? (
+            <div className="notice eval-running" role="status" data-testid="eval-running">
+              Finishing restore and evaluating projects…
+            </div>
+          ) : evaluation.staleReason ? (
             <div className="notice warning eval-stale" role="status" data-testid="eval-stale">
               <strong>Evaluation stale.</strong> {evaluation.staleReason}{" "}
               {hasEarlierEvaluation
                 ? "Values shown are from the previous evaluation and are not current."
-                : "Nothing is current yet; Re-evaluate to produce a current model."}
+                : "Nothing is current yet."}
               <div className="actions">
-                <button
-                  data-testid="eval-stale-run"
-                  disabled={!evaluationAvailable || evaluationBusy}
-                  onClick={() => void runEvaluation()}
-                >
-                  Re-evaluate
-                </button>
+                {evaluationRun.disabledReason ? (
+                  <span className="muted" data-testid="eval-stale-blocked">{evaluationRun.disabledReason}</span>
+                ) : (
+                  <button data-testid="eval-stale-run" onClick={() => void runEvaluation()}>
+                    Re-evaluate
+                  </button>
+                )}
               </div>
             </div>
-          )}
+          ) : null}
 
           <SolutionTree
             workspaceName={workspace.name}

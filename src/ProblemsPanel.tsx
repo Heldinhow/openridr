@@ -22,6 +22,10 @@ type Props = {
   editedAt?: Record<string, number>;
   onNavigate: (path: string, position: { line: number; character: number }) => void;
   onOpen: (path: string) => void;
+  /** Restarts analysis next to the partial-coverage caveat; null in Restricted mode. */
+  onRestartAnalysis?: (() => void) | null;
+  /** Why the restart cannot run now; shown instead of a disabled button. */
+  restartAnalysisReason?: string | null;
 };
 
 function buildProblemState(build: Build, obsolete: boolean) {
@@ -98,6 +102,8 @@ export function ProblemsPanel({
   editedAt = {},
   onNavigate,
   onOpen,
+  onRestartAnalysis = null,
+  restartAnalysisReason = null,
 }: Props) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [document, setDocument] = useState("");
@@ -224,6 +230,17 @@ export function ProblemsPanel({
           <strong>Analysis coverage is partial.</strong>{" "}
           {diagnostics.coverageNote ??
             "The project model or restore is incomplete; diagnostics may cover only part of the solution."}
+          {onRestartAnalysis && (
+            <div className="actions">
+              {restartAnalysisReason ? (
+                <span className="muted" data-testid="problems-restart-blocked">{restartAnalysisReason}</span>
+              ) : (
+                <button type="button" data-testid="problems-restart-analysis" onClick={onRestartAnalysis}>
+                  Restart analysis
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
