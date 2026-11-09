@@ -141,7 +141,13 @@ aberto com `OPENRIDR_HOME=/tmp/openridr-318/app-home` e a fixture
 - **Trust**: o prompt "Trust OrderDesk.sln?" apareceu depois do setup; a decisão gravou
   `{"<fixture>": "trusted"}` em `$OPENRIDR_HOME/trusted.json` e o workspace abriu com
   "Trusted mode" e a Solution Explorer com os 3 projetos.
-- **Debug no app**: ver a seção seguinte.
+- **Debug**: com o breakpoint em `src/OrderDesk.Cli/Program.cs:4` (F9 na linha) e F5, o painel
+  Debug do app instalado mostrou `Paused · breakpoint · 1 frame(s) · 1 thread(s)`, a thread
+  `Main Thread (233186)`, o frame `Program.<Main>$()` em `Program.cs:4` e os locais
+  `args = {string[0]}` e `order = OrderDesk.Core.Order`. A árvore de processos no instante da
+  parada era `openridr (231798) → ~/.local/lib/openridr/netcoredbg/netcoredbg --interpreter=vscode
+  (233175) → dotnet .../OrderDesk.Cli/bin/Debug/net8.0/OrderDesk.Cli.dll (233186)`. F5 de novo
+  terminou a sessão (`Debug Terminated`, saída do debuggee preservada no painel).
 
 ## Não verificado
 
