@@ -4,9 +4,30 @@
     "beforeBuildCommand": "bun run build && sh \"$(git rev-parse --show-toplevel)/scripts/vendor-netcoredbg.sh\""
   },
   "bundle": {
+    "targets": [
+      "deb",
+      "appimage"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/256x256.png"
+    ],
+    "category": "DeveloperTool",
+    "fileAssociations": [],
     "resources": {
       "resources/csharp-ls/": null,
       "resources/dotnet/": null
+    },
+    "linux": {
+      "deb": {
+        "section": "devel",
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0 | libgtk-3-0t64"
+        ],
+        "desktopTemplate": "linux/openridr.desktop"
+      }
     }
   }
 }
