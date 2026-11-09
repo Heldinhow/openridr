@@ -10,6 +10,8 @@ use serde_json::Value;
 use tauri::menu::{Menu, MenuItemBuilder};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, Url, WindowEvent};
 
+#[cfg(target_os = "linux")]
+mod picker;
 mod update;
 
 /// Event that tells the UI a path is waiting in `take_pending_open`.
@@ -105,7 +107,9 @@ fn launch_path(args: impl IntoIterator<Item = String>, cwd: Option<&Path>) -> Op
     }
 }
 
-/// Local path of a `file://` URL; other schemes are not files this app opens.
+/// Local path of a `file://` URL; other schemes are not files this app opens. Only the macOS
+/// `RunEvent::Opened` handler and the test below use it, so the Linux build would warn.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn path_from_url(url: &Url) -> Option<String> {
     if url.scheme() != "file" {
         return None;
@@ -209,6 +213,12 @@ fn default_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 }
 
 fn main() {
+    let host = Arc::new(Host::new());
+    // Linux has no dialog inside the host: the XDG portal answers on the connection that called
+    // it, so the shell owns the chooser and registers it here. macOS keeps `osascript` in the
+    // host and Windows keeps the typed-path fallback.
+    #[cfg(target_os = "linux")]
+    host.set_file_picker(picker::pick_workspace);
     let builder = tauri::Builder::default()
         // Must stay the first plugin: it has to exit a second process before any other setup runs.
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
@@ -237,7 +247,7 @@ fn main() {
                 let _ = app.emit(UPDATE_CHECK_EVENT, ());
             }
         })
-        .manage(Arc::new(Host::new()))
+        .manage(host)
         .manage(PendingOpen::default())
         .manage(PendingQuit::default())
         .manage(update::PendingUpdate::default())
