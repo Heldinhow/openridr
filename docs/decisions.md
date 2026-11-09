@@ -2009,3 +2009,48 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 - **Consequência.** `crates/host/src/evaluation.rs` (`invoke` recebe a raiz), `crates/host/src/lib.rs`
   (sai o `shortcut:` de `resolve_without_pin`) e um teste de fronteira em `crates/host/tests/host.rs`.
   Nenhum `data-testid` tocado.
+
+## 2026-11-09 — O OpenRidr instala no Linux: pacote, AppImage e atalho no menu (issue #322)
+
+- **A decisão.** O build do Linux passa a produzir `.deb` e `.AppImage`, e o repositório ganha uma
+  instalação user-local sem root. Os três caminhos põem o app no menu de aplicativos com a mesma
+  entrada, e o app instalado acha o netcoredbg onde o pacote o põe: o setup chega a `ready` sem baixar
+  o adaptador. O macOS não muda.
+- **Onde mora.** `src-tauri/tauri.linux.conf.json` (o merge RFC 7396 que a #318 criou) declara
+  `bundle.targets` `["deb","appimage"]`, `bundle.category`, `deb.section`/`deb.depends`/
+  `deb.desktopTemplate` e `fileAssociations` vazio. O `tauri.conf.json` base continua com
+  `["app","dmg"]` — e no Linux esses dois alvos não são erro, são ignorados com um warning, que é por
+  que o build de hoje termina sem produzir pacote nenhum.
+- **O layout do pacote não é o que o host procurava.** Lido na fonte do bundler (2.10.4): binário em
+  `/usr/bin/<nome do binário>`, recursos em `/usr/lib/<nome do produto>` (`OpenRidr`, maiúsculo),
+  `.desktop` em `/usr/share/applications/<nome do produto>.desktop`, ícone em
+  `hicolor/<W>x<H>/apps/<nome do binário>.png`, e o pacote deb recebe o kebab-case do nome do produto
+  (`open-ridr`). A #318 fez o host procurar `<dir do exe>/../lib/<nome do binário>`, que é o layout da
+  instalação user-local e **não** o do pacote: sem ajuste, o deb instalaria e o setup bloquearia com
+  "reinstale o OpenRidr". A resolução passa a receber o `resource_dir()` do Tauri pelo shell e a cair
+  para o irmão do binário quando ele não existir — dois candidatos, cada um exato para um caminho de
+  instalação, sem duplicar o nome do produto dentro do host.
+- **Nomes derivados, aceitos e documentados.** Renomear o pacote não é configurável, e forçar
+  `mainBinaryName` mudaria o nome do binário e a resolução dos recursos; a inconsistência
+  (`open-ridr` / `openridr` / `OpenRidr`) custa menos que um fork do bundler.
+- **Uma entrada de menu, dois consumidores.** Um template `.desktop` no repositório serve o deb
+  (`deb.desktopTemplate`) e o script de instalação, que troca o `Exec` pelo caminho absoluto — sessão
+  gráfica frequentemente não tem `~/.local/bin` no `PATH`. O default do Tauri não serve: sai com
+  `Categories=` vazio e sem `%F`, então não aceita arquivo como argumento.
+- **`Depends` declarado à mão.** O bundler não calcula dependência nenhuma; sem `Depends` o pacote
+  instala e o app morre com biblioteca faltando. Entram `libwebkit2gtk-4.1-0` e
+  `libgtk-3-0 | libgtk-3-0t64` (a alternativa cobre a renomeação t64 do Ubuntu 24.04+). O deb não foi
+  instalado num Debian real: fica como não verificado.
+- **Sem MIME no Linux nesta frente.** As `fileAssociations` do macOS têm `mimeType` genérico
+  (`text/plain`, `text/xml`); herdadas no Linux, o `.desktop` reivindicaria todo arquivo de texto. No
+  Linux elas ficam vazias e o "abrir com" por MIME próprio vira issue filha.
+- **O AppImage entra sob condição.** Só se o build usar o que o bundler já baixa (linuxdeploy e
+  AppRun) e buildar em `aarch64`; exigir ferramenta nova ou não buildar o tira da frente.
+- **O que não muda.** macOS (config, build, assinatura, layout), `AGENTS.md`, workflows e
+  dependências. O comando novo entra em `package.json` (`app:install:linux`) e em
+  `docs/install-app.md`.
+- **Consequência.** `src-tauri/tauri.linux.conf.json`, o template `.desktop`,
+  `crates/host/src/bundled.rs` e `src-tauri/src/main.rs` (passa o `resource_dir()`),
+  `scripts/install-app-linux.sh`, `tests/shell/install-app-linux.test.sh`, `package.json`,
+  `docs/install-app.md`, `docs/README.md` e `docs/evidence/linux-packaging.md`. Nenhum `data-testid`
+  tocado, nenhuma dependência nova.
