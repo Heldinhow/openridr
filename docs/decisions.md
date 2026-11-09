@@ -2009,3 +2009,15 @@ Decisões do grill da #52 (respondidas pelo orquestrador; Q2 é decisão do Held
 - **Consequência.** `crates/host/src/evaluation.rs` (`invoke` recebe a raiz), `crates/host/src/lib.rs`
   (sai o `shortcut:` de `resolve_without_pin`) e um teste de fronteira em `crates/host/tests/host.rs`.
   Nenhum `data-testid` tocado.
+
+## 2026-11-08 — Tela de boas-vindas respeita a plataforma (#319)
+
+O botão **Open** deixa de ser um beco sem saída fora do macOS. `workspace.pick` continua sendo o único contrato: o host responde `{ path }`, `{ path: null }` no cancelamento ou o erro `pick_unavailable`. A UI trata `pick_unavailable` como **estado**, não como erro — o campo de caminho aparece com foco e uma linha de status discreta, sem banner vermelho. O campo é permanente no Linux e no Windows e continua escondido no macOS (a aparência verificada não muda); o build de browser/E2E, que não tem seletor nativo, sempre o mostra. `~` e `~/…` são expandidos pelo host (`expand_home`, contra `HOME`/`USERPROFILE`) e todo o resto é tomado como digitado, inclusive `~user` e um til no meio do caminho.
+
+O atalho vem do keymap: `shortcut("o", { primary: true })` com `formatShortcut` dá `⌘O` no macOS e `Ctrl+O` fora dele, e o handler usa `matches`, não `metaKey || ctrlKey`. Nada de texto fixo no JSX.
+
+No Linux a janela não recebe menu: `Builder::menu` não é chamado. O menu GTK padrão (Edit, Window, Help) não é a UI do app, e os itens predefinidos de recortar/copiar/colar/selecionar tudo do `muda` carregam **só o rótulo do acelerador** (`muda-0.20.0/src/platform_impl/gtk/mod.rs`: "These items do not need an accelerator as GTK automatically have them"), com a ação real atrás de `libxdo`, que é X11. A barra nunca foi dona dessas teclas, então removê-la não as tira; quem responde por elas é o webview. Nesta sessão `Ctrl+A` e `Ctrl+V` não responderam no WebKitGTK **com e sem** a barra (ver `docs/evidence/welcome-linux.md`), então o que falta ali é anterior a esta mudança e precisa da confirmação do Helder com teclado real. Windows mantém `Menu::default`.
+
+O seletor nativo no Linux (portal XDG `org.freedesktop.portal.FileChooser`) ainda não existe: `gdbus` sozinho não serve (a resposta do portal é unicast para a conexão que chamou e o portal recusa `Request.Close` de outra conexão), e cada caminho sem dependência nova depende de um runtime do sistema (`gjs`) ou de código de protocolo D-Bus escrito à mão. Fica registrado como pendente de decisão de dependência na #319; até lá o Linux usa o campo de caminho.
+
+Consequência: `crates/host/src/lib.rs` (`expand_home`, `home_dir`, `pick_unavailable`), `src/SetupScreen.tsx`, `src/welcome/{ProjectsView,PathForm}` e `src/welcome/openTarget.ts`, `src/styles.css`, `src-tauri/src/main.rs`, `tests/unit/welcomeOpen.test.ts` e `tests/e2e/welcome.spec.ts`. Nenhum `data-testid` renomeado ou removido; `welcome-keys` e `workspace-pick-notice` são novos.

@@ -161,10 +161,12 @@ test("a project that cannot be opened shows the error on its own row", async ({ 
   await expect(page.getByTestId("welcome-recent-1")).toHaveCount(0);
 });
 
-test("keyboard: ↑/↓ move between rows, Enter opens, / focuses search, ⌘O asks to open a folder", async ({ page }) => {
+test("keyboard: ↑/↓ move between rows, Enter opens, / focuses search, Open asks for a folder", async ({ page }) => {
   await host.useFor(page);
   await seed(project("Alpha").solution, "trusted");
   await seed(project("Beta").solution, "trusted");
+  // The keymap resolves `primary` per platform, so the spec presses the key the hint advertises.
+  const platform = (await hostCall("app.state")).data.app.platform as string;
   // The real chooser is a native macOS dialog; answer it as "cancelled" and count the asks.
   const picks: string[] = [];
   await page.route(/\/__host\/call$/, async (route) => {
@@ -185,13 +187,72 @@ test("keyboard: ↑/↓ move between rows, Enter opens, / focuses search, ⌘O a
   await page.keyboard.press("ArrowUp");
   await expect(page.getByTestId("welcome-recent-0")).toBeFocused();
 
-  await page.keyboard.press("Control+o");
+  await page.keyboard.press(platform === "macos" ? "Meta+o" : "Control+o");
   await expect.poll(() => picks.length).toBeGreaterThan(0);
 
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("tree")).toBeVisible();
   await expect(page.getByTestId("status-mode")).toHaveText("Trusted mode");
+});
+
+test("the shortcut hint follows the platform instead of a fixed ⌘O", async ({ page }) => {
+  await host.useFor(page);
+  const platform = (await hostCall("app.state")).data.app.platform as string;
+  await page.goto("/");
+  await expect(page.getByTestId("welcome-keys")).toContainText(platform === "macos" ? "⌘O" : "Ctrl+O");
+  await expect(page.getByTestId("welcome-keys")).not.toContainText(platform === "macos" ? "Ctrl+O" : "⌘O");
+});
+
+test("the typed path opens a project, and a wrong one keeps the text next to the field", async ({ page }) => {
+  await host.useFor(page);
+  const { solution } = project("Typed");
+  await page.goto("/");
+
+  const input = page.getByTestId("workspace-path-input");
+  await input.fill("/tmp/openridr-319-does-not-exist/App.sln");
+  await page.getByTestId("workspace-open").click();
+  await expect(page.getByTestId("workspace-error")).toContainText("not found");
+  // The typed text survives the refusal, so it can be corrected instead of retyped.
+  await expect(input).toHaveValue("/tmp/openridr-319-does-not-exist/App.sln");
+  await expect(input).toHaveAttribute("aria-invalid", "true");
+
+  // The typed path reaches the host exactly as typed and the screen moves on to the open flow.
+  const opened: string[] = [];
+  await page.route(/\/__host\/call$/, async (route) => {
+    const body = route.request().postData() ?? "";
+    if (body.includes('"workspace.open"')) opened.push(JSON.parse(body).params.path);
+    return route.fallback();
+  });
+  await input.fill(solution);
+  await page.getByTestId("workspace-open").click();
+  await expect.poll(() => opened.at(-1)).toBe(solution);
+  // An undecided project asks for Trust; on Linux the bundled debug adapter gate (#318) comes
+  // first, so either screen proves the open flow started.
+  await expect(page.getByTestId("trust-prompt-dialog").or(page.getByTestId("setup-gate"))).toBeVisible();
+  await expect(page.getByTestId("workspace-error")).toHaveCount(0);
+});
+
+test("a refused chooser hands the field the focus, as a status line and not an error", async ({ page }) => {
+  await host.useFor(page);
+  await page.route(/\/__host\/call$/, async (route) => {
+    if (!(route.request().postData() ?? "").includes("workspace.pick")) return route.fallback();
+    await route.fulfill({
+      json: {
+        ok: false,
+        error: {
+          code: "pick_unavailable",
+          message: "No native file chooser is available here; type the path instead.",
+        },
+      },
+    });
+  });
+  await page.goto("/");
+  await page.getByTestId("workspace-pick").click();
+  await expect(page.getByTestId("workspace-pick-notice")).toContainText("type the path");
+  await expect(page.getByTestId("workspace-path-input")).toBeFocused();
+  // Nothing to dismiss and nothing red: the field is the way out.
+  await expect(page.getByTestId("workspace-error")).toHaveCount(0);
 });
 
 test("Toolchain lives in the second view and Projects returns", async ({ page }) => {

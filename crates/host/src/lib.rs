@@ -1221,8 +1221,8 @@ impl Host {
     }
 
     fn open_workspace(&self, params: Value) -> HostResult<Value> {
-        let raw = required_str(&params, "path")?;
-        if raw.trim().is_empty() {
+        let typed = required_str(&params, "path")?;
+        if typed.trim().is_empty() {
             return Err(HostError::new(
                 "path_not_allowed",
                 "Workspace path is empty.",
@@ -1236,8 +1236,11 @@ impl Host {
                 .filter(|dir| dir.is_absolute()),
         }
         .ok_or_else(|| HostError::new("path_not_allowed", "Base directory must be absolute."))?;
-        let canonical = fs::canonicalize(base.join(&raw))
-            .map_err(|_| HostError::new("not_found", format!("Workspace path not found: {raw}")))?;
+        // The welcome form takes `~/…` the way a shell does; the refusal keeps the typed text.
+        let raw = expand_home(typed.trim(), home_dir().as_deref());
+        let canonical = fs::canonicalize(base.join(&raw)).map_err(|_| {
+            HostError::new("not_found", format!("Workspace path not found: {typed}"))
+        })?;
         let workspace_path = if canonical.is_dir() {
             resolve_directory(&canonical)?
         } else {
@@ -9071,13 +9074,35 @@ fn log_tail(log: &str, lines: usize) -> String {
     all[start..].join("\n")
 }
 
-/// Native file chooser for the welcome screen (macOS only, like the verified target).
+/// The user's home directory, the base `~/…` expands against. Windows spells it differently.
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+}
+
+/// `~` and `~/…` expand against `home`; every other spelling is taken as typed, so a path that
+/// merely contains a tilde is not rewritten.
+fn expand_home(raw: &str, home: Option<&Path>) -> PathBuf {
+    let rest = if raw == "~" {
+        Some("")
+    } else {
+        raw.strip_prefix("~/")
+    };
+    match (rest, home) {
+        (Some(rest), Some(home)) => home.join(rest),
+        _ => PathBuf::from(raw),
+    }
+}
+
+/// Native file chooser for the welcome screen. macOS keeps `osascript` (the verified target);
+/// elsewhere the UI is told the chooser is unavailable and offers the path field instead.
 /// Returns `{ "path": null }` when the user cancels. No lock is held while it is open.
 fn pick_workspace() -> HostResult<Value> {
     if !cfg!(target_os = "macos") {
         return Err(HostError::new(
-            "unsupported",
-            "The file chooser is only implemented on macOS; type the path instead.",
+            "pick_unavailable",
+            "No native file chooser is available here; type the path instead.",
         ));
     }
     let output = Command::new("osascript")
@@ -9124,6 +9149,37 @@ fn workspace_symbol_items(scope: &Scope, list: &lsp::WorkspaceSymbolList) -> (Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tilde_prefix_expands_against_home_and_nothing_else_is_rewritten() {
+        let home = Path::new("/home/ana");
+        assert_eq!(
+            expand_home("~/src/App.sln", Some(home)),
+            PathBuf::from("/home/ana/src/App.sln"),
+        );
+        assert_eq!(expand_home("~", Some(home)), PathBuf::from("/home/ana"));
+        // `~user` is a shell feature the host does not implement: it stays as typed and fails
+        // with `not_found` instead of silently opening somebody else's project.
+        assert_eq!(
+            expand_home("~ana/App.sln", Some(home)),
+            PathBuf::from("~ana/App.sln"),
+        );
+        // Only a leading `~/` is a home reference; a tilde elsewhere is part of the name.
+        assert_eq!(
+            expand_home("/tmp/a~/App.sln", Some(home)),
+            PathBuf::from("/tmp/a~/App.sln"),
+        );
+        assert_eq!(
+            expand_home("src/App.sln", Some(home)),
+            PathBuf::from("src/App.sln"),
+        );
+        assert_eq!(
+            expand_home("/abs/App.sln", Some(home)),
+            PathBuf::from("/abs/App.sln"),
+        );
+        // With no home to expand against, the typed text is the only honest answer.
+        assert_eq!(expand_home("~/App.sln", None), PathBuf::from("~/App.sln"));
+    }
 
     #[test]
     fn the_generated_solution_separates_same_named_projects_and_rejects_unquotable_paths() {
