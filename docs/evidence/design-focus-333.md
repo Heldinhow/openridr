@@ -29,6 +29,9 @@ Geometria medida (1440 e 1100, mesmos valores):
 - Auditoria de nome acessível: **nenhum** botão visível só de ícone sem `aria-label`/`title`, nas
   duas larguras.
 - `data-testid` do rail preservados (`toolband-*`, `tool-windows`, `tool-windows-right`).
+- `tests/e2e/rail-focus.spec.ts` — **1 passed**: Tab alcança um botão do rail nas duas larguras e o
+  anel mede `outline-offset: -2px`, `outline-width: 2px`, `solid`, com o botão inteiro dentro do
+  rail e nome acessível.
 
 ## Não verificado / decisão
 
