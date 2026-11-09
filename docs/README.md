@@ -108,5 +108,6 @@ Numeração de tickets nas pastas históricas **reinicia por pasta** (`tickets/0
 | [nav-retest.md](nav-retest.md), [RIDR-VS-RIDER.md](RIDR-VS-RIDER.md), [UI-AUDIT.md](UI-AUDIT.md) | retestes e auditorias datados de 28–29/10 |
 | `superpowers/plans/` | plano de aproximação visual (29/10) |
 | `evidence/` (screenshots, logs) | parte da evidência bruta foi removida do repositório público (capturas com caminhos pessoais, referências de software proprietário); os `evidence/*.md` marcam o que não está mais aqui |
+| Pacote Linux (.deb, AppImage, atalho no menu) | issue [#322](https://github.com/Heldinhow/openridr/issues/322) | #323–#325 | — | [evidence/linux-packaging.md](evidence/linux-packaging.md) |
 
 Specs/tickets antigos mantêm `Status: ready-for-agent` no cabeçalho por serem anteriores à implementação: o estado real está nas retros e no `git log`.
