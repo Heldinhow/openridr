@@ -900,31 +900,36 @@ export function TestsPanel({
           />
         </label>
         <span className="push" />
-        <button
-          type="button"
-          data-testid="tests-expand-all"
-          onClick={() => setCollapsed(new Set())}
-          title="Expands every group in the tree."
-        >
-          <Icon name="expandAll" /> Expand all
-        </button>
-        <button
-          type="button"
-          data-testid="tests-collapse-all"
-          onClick={() => setCollapsed(new Set(groupKeys(tree)))}
-          title="Collapses every group; the tree and selection stay the same."
-        >
-          <Icon name="collapseAll" /> Collapse all
-        </button>
-        <button
-          type="button"
-          data-testid="tests-export"
-          disabled={exporting || (discovery.revision === 0 && run.revision === 0)}
-          onClick={() => void exportResults()}
-          title="Writes the current discovery and the last run to a JSON file in the OpenRidr app home."
-        >
-          <Icon name="text" /> {exporting ? "Exporting…" : "Export"}
-        </button>
+        <details className="panel-disclosure" data-testid="tests-overflow">
+          <summary aria-label="More test actions" title="Expand, collapse and export the current discovery">More</summary>
+          <div className="panel-disclosure-body">
+            <button
+              type="button"
+              data-testid="tests-expand-all"
+              onClick={() => setCollapsed(new Set())}
+              title="Expands every group in the tree."
+            >
+              <Icon name="expandAll" /> Expand all
+            </button>
+            <button
+              type="button"
+              data-testid="tests-collapse-all"
+              onClick={() => setCollapsed(new Set(groupKeys(tree)))}
+              title="Collapses every group; the tree and selection stay the same."
+            >
+              <Icon name="collapseAll" /> Collapse all
+            </button>
+            <button
+              type="button"
+              data-testid="tests-export"
+              disabled={exporting || (discovery.revision === 0 && run.revision === 0)}
+              onClick={() => void exportResults()}
+              title="Writes the current discovery and the last run to a JSON file in the OpenRidr app home."
+            >
+              <Icon name="text" /> {exporting ? "Exporting…" : "Export"}
+            </button>
+          </div>
+        </details>
         {exported && (
           <span className="muted" data-testid="tests-export-path" title={exported.path}>
             Exported {exported.bytes} bytes to <code>{exported.path}</code>

@@ -167,6 +167,10 @@ export function BuildPanel({
   const startup =
     candidates.find((project) => project.path === startupPath) ?? null;
 
+  const buildLabel = running
+    ? "Building…"
+    : `Build startup${startup ? ` '${startup.name}'` : ""} (${buildShortcut})`;
+
   return (
     <div className="build-panel" data-testid="build-panel">
       <div className="build-controls">
@@ -236,14 +240,12 @@ export function BuildPanel({
           data-testid="build-action"
           disabled={disabledReason !== null}
           onClick={onBuild}
-          title={
+          title={`${buildLabel} — ${
             disabledReason ??
-            `Runs an incremental dotnet build of the startup project; use Build Solution (${solutionShortcut}) for the whole solution.`
-          }
+            `runs an incremental dotnet build of the startup project; use Build Solution (${solutionShortcut}) for the whole solution.`
+          }`}
         >
-          {running
-            ? "Building…"
-            : `Build startup${startup ? ` '${startup.name}'` : ""} (${buildShortcut})`}
+          {buildLabel}
         </button>
         <button
           data-testid="build-solution"

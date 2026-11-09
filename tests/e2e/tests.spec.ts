@@ -393,6 +393,7 @@ test("real test run reports TRX outcomes, details, position, next failure and Ru
     await expect(page.getByTestId("tests-detail-status")).not.toHaveText("not run");
     await expect(page.getByTestId("tests-detail-duration")).toHaveText(/ms|duration unknown/);
 
+    await page.getByTestId("tests-overflow").locator("summary").click();
     await page.getByTestId("tests-collapse-all").click();
     await expect(page.getByTestId("test-item-0")).toHaveCount(0);
     await page.getByTestId("tests-expand-all").click();
