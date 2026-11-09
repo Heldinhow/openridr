@@ -18,7 +18,10 @@ test("panel disclosures keep secondary controls behind a keyboard-reachable summ
   const testsSummary = page.getByTestId("tests-overflow").locator("summary");
   await expect(testsSummary).toHaveAttribute("aria-label", "More test actions");
   await expect(page.getByTestId("tests-expand-all")).toBeHidden();
-  await testsSummary.focus();
+  // Tab reaches the summary from the filter that precedes it in the toolbar.
+  await page.getByTestId("tests-filter").focus();
+  await page.keyboard.press("Tab");
+  await expect(testsSummary).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("tests-expand-all")).toBeVisible();
   await expect(page.getByTestId("tests-export")).toBeVisible();
@@ -29,7 +32,9 @@ test("panel disclosures keep secondary controls behind a keyboard-reachable summ
   const nugetSummary = page.getByTestId("nuget-filters").locator("summary");
   await expect(nugetSummary).toHaveAttribute("aria-label", "Package filters");
   await expect(page.getByTestId("nuget-scope")).toBeHidden();
-  await nugetSummary.focus();
+  await page.getByTestId("nuget-project").focus();
+  await page.keyboard.press("Tab");
+  await expect(nugetSummary).toBeFocused();
   await page.keyboard.press("Space");
   await expect(page.getByTestId("nuget-scope")).toBeVisible();
   await expect(page.getByTestId("nuget-source-select")).toBeVisible();
