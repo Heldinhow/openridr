@@ -2078,3 +2078,7 @@ A primeira fatia substitui as ilhas arredondadas por uma superfície escura cont
 ## 2026-11-10 — Ícones da Solution Explorer voltam ao vocabulário do T3 (#349)
 
 O `.cs` volta ao hexágono `C#` do Simple Icons (CC0, do sprite do T3 Code) na cor `--icon-csharp`, e o projeto volta ao glifo por tipo (console, biblioteca, testes, web) nas cores `--icon-project-*`. Substitui o glifo de texto e o retângulo `C#` da entrada "Rider-style explorer icons" (`c626fc2`): eram `<text>` em Arial a 7,5–9,5 px, ilegíveis e dependentes de fonte, e pintavam tudo do mesmo verde fixo. Dependencies, Frameworks e pastas de solução ficam em `--muted`; `solution-icons.css` deixa de ter hex próprio para tipo de arquivo. Sem dependência nova; atribuição restaurada em `THIRD-PARTY-NOTICES.md`.
+
+## 2026-11-10 — Paleta única no app inteiro (#350)
+
+A paleta aprovada no workspace (#349) deixa de ser escopada e vira o `:root` do app: `--bg` `#090909`, `--panel` `#101010`, `--raised` `#1b1b1b`, `--chrome` `#050505`, seleção neutra e aba ativa `#252525`. Saem os tokens `--workspace-*` e o alias em `.workspace-view`; welcome, setup, trust, menus, diálogos, configurações e painéis passam a ler os mesmos valores. `.chrome` e `.toolbar` usam `--chrome` e `.menu-content` usa `--raised`, como os demais popovers. A decisão substitui a exceção registrada em `DESIGN.md` para a primeira fatia; o resto do sistema (tipografia, escala, raios, foco, semântica de estado) não muda. Evidência em [evidence/t3-surfaces-350.md](evidence/t3-surfaces-350.md).

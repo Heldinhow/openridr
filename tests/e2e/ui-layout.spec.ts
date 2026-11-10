@@ -29,7 +29,7 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
       await page.screenshot({ path: path.join(directory, `${name}-${viewport.width}x${viewport.height}.png`) });
     };
     await capture("welcome");
-    // The slice palette is scoped to the workspace: Welcome keeps the general tokens.
+    // One palette for the whole app: Welcome and the workspace read the same tokens.
     const palette = (selector: string) =>
       page.locator(selector).evaluate((element) => {
         const style = getComputedStyle(element);
@@ -38,7 +38,7 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
           chrome: style.getPropertyValue("--chrome").trim(),
         };
       });
-    expect(await palette(".setup-screen")).toEqual({ bg: "#1e1f22", chrome: "#17181a" });
+    expect(await palette(".setup-screen")).toEqual({ bg: "#090909", chrome: "#050505" });
     await page.getByTestId("workspace-path-input").fill(path.resolve("fixtures/OrderDesk/OrderDesk.sln"));
     await page.getByTestId("workspace-open").click();
     await page.getByTestId("trust-prompt-restricted").click();
