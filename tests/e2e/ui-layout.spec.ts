@@ -29,10 +29,21 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
       await page.screenshot({ path: path.join(directory, `${name}-${viewport.width}x${viewport.height}.png`) });
     };
     await capture("welcome");
+    // The slice palette is scoped to the workspace: Welcome keeps the general tokens.
+    const palette = (selector: string) =>
+      page.locator(selector).evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          bg: style.getPropertyValue("--bg").trim(),
+          chrome: style.getPropertyValue("--chrome").trim(),
+        };
+      });
+    expect(await palette(".setup-screen")).toEqual({ bg: "#1e1f22", chrome: "#17181a" });
     await page.getByTestId("workspace-path-input").fill(path.resolve("fixtures/OrderDesk/OrderDesk.sln"));
     await page.getByTestId("workspace-open").click();
     await page.getByTestId("trust-prompt-restricted").click();
     await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
+    expect(await palette(".workspace-view")).toEqual({ bg: "#090909", chrome: "#050505" });
     const tree = page.getByTestId("tree");
     const editor = page.getByRole("region", { name: "Editor", exact: true });
     const output = page.getByRole("region", { name: "Bottom panel" });
@@ -41,11 +52,11 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
     const outputBox = (await output.boundingBox())!;
     expect(treeBox.width).toBe(280);
     expect(treeBox.y).toBe(56);
-    expect(outputBox.y - (treeBox.y + treeBox.height)).toBeGreaterThanOrEqual(4);
-    expect(outputBox.y - (treeBox.y + treeBox.height)).toBeLessThanOrEqual(12);
+    // The Solution Explorer remains alongside both the editor and bottom tool window.
+    expect(treeBox.y + treeBox.height).toBeGreaterThanOrEqual(outputBox.y + outputBox.height);
     expect(editorBox.height).toBeGreaterThan(200);
     expect(outputBox.height).toBe(220);
-    expect(outputBox.x).toBe(treeBox.x);
+    expect(outputBox.x).toBe(editorBox.x);
     expect(outputBox.x + outputBox.width).toBe(editorBox.x + editorBox.width);
     for (const id of ["toolbar-build", "toolbar-run", "toolbar-debug", "toolbar-settings", "toolbar-run-config", "status-mode"]) {
       const box = (await page.getByTestId(id).boundingBox())!;
@@ -147,11 +158,22 @@ test("evaluated project details keep paths intact and Close with the heading", a
   await expect(projectPath).toHaveAttribute("title", "src/OrderDesk.Cli/OrderDesk.Cli.csproj");
   await expect(page.getByTestId("status-workspace")).toHaveAttribute("title", fs.realpathSync(path.join(copy, "OrderDesk.sln")));
   await page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs").click();
+  await expect(page.getByTestId("editor")).toBeVisible();
   await expect(page.getByTestId("status-breadcrumb")).not.toContainText("OrderDesk.sln");
+  if (requestedScreenshotsDir) {
+    fs.mkdirSync(requestedScreenshotsDir, { recursive: true });
+    await page.screenshot({ path: path.join(requestedScreenshotsDir, "workspace-trusted-1440x900.png") });
+  }
   const close = page.getByRole("button", { name: "Close project details" });
   await expect(close.locator("..")).toContainText("OrderDesk.Cli");
   await close.click();
   await expect(details).toBeHidden();
+  await page.getByTestId("workspace-tools-close").click();
+  await expect(page.getByTestId("toolbar-build")).toBeEnabled({ timeout: 60_000 });
+  if (requestedScreenshotsDir) {
+    fs.mkdirSync(requestedScreenshotsDir, { recursive: true });
+    await page.screenshot({ path: path.join(requestedScreenshotsDir, "workspace-trusted-1440x900.png") });
+  }
 });
 
 for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 900 }, { width: 1100, height: 700 }]) {

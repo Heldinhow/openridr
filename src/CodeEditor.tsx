@@ -104,16 +104,17 @@ const theme = EditorView.theme(
     "&": { height: "100%", backgroundColor: "var(--bg)", color: "var(--fg)" },
     ".cm-scroller": {
       lineHeight: "1.65",
-    },    ".cm-content": { caretColor: "var(--accent)" },
+    },
+    ".cm-content": { caretColor: "var(--accent)" },
     ".cm-gutters": {
       backgroundColor: "var(--bg)",
-      color: "#6f737a",
+      color: "#999999",
       border: "0",
     },
-    ".cm-activeLine": { backgroundColor: "#26282c" },
-    ".cm-activeLineGutter": { backgroundColor: "#26282c" },
+    ".cm-activeLine": { backgroundColor: "#1a1a1a" },
+    ".cm-activeLineGutter": { backgroundColor: "#1a1a1a" },
     "&.cm-focused": { outline: "none" },
-    ".cm-selectionBackground, ::selection": { backgroundColor: "#214283 !important" },
+    ".cm-selectionBackground, ::selection": { backgroundColor: "#30476a !important" },
     ".cm-cursor": { borderLeftColor: "var(--accent)" },
     ".cm-diagnostic": { textUnderlineOffset: "3px" },
     ".cm-diagnostic-error": { textDecoration: "underline wavy #f75464" },
@@ -136,12 +137,12 @@ const theme = EditorView.theme(
 );
 
 const syntaxColors = HighlightStyle.define([
-  { tag: tags.keyword, color: "#c6a9ed" },
-  { tag: [tags.typeName, tags.className], color: "#8ed4ca" },
-  { tag: tags.string, color: "#a7cf9b" },
-  { tag: [tags.number, tags.bool, tags.null], color: "#f0b789" },
-  { tag: tags.comment, color: "#929eac", fontStyle: "italic" },
-  { tag: tags.function(tags.variableName), color: "#f3cf7e" },
+  { tag: tags.keyword, color: "#c4a7e7" },
+  { tag: [tags.typeName, tags.className], color: "#8acbc3" },
+  { tag: tags.string, color: "#b5d49c" },
+  { tag: [tags.number, tags.bool, tags.null], color: "#e8b58f" },
+  { tag: tags.comment, color: "#a0a0a0", fontStyle: "italic" },
+  { tag: tags.function(tags.variableName), color: "#e8ce94" },
 ]);
 
 type Target = { path: string; line: number; character: number; nonce: number };

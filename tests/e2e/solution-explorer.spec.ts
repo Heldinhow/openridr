@@ -46,7 +46,7 @@ test("Rider-style rows: counts, solution folders, nested sources and Dependencie
   await expect(page.getByTestId("tree-root")).toContainText("3 projects");
   await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toBeVisible();
   const row = await page.getByTestId("tree-project-OrderDesk.Cli").boundingBox();
-  expect(row!.height).toBeLessThan(36); // one line, no two-layer row
+  expect(row!.height).toBeLessThanOrEqual(36); // one 36 px line, no two-layer row
   await page.getByTestId("tree-root").click();
   await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toHaveCount(0);
   await page.getByTestId("tree-root").click();

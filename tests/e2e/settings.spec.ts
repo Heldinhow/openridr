@@ -207,12 +207,15 @@ test("appearance applies zoom and density live; Cancel discards and invalid valu
     .poll(() => workspace.evaluate((element) => getComputedStyle(element).zoom))
     .toBe("1.1");
   await expect(workspace).toHaveAttribute("data-density", "compact");
+  const row = page.locator(".side .sol-row").first();
+  await expect(row).toHaveCSS("min-height", "32px");
 
   await page.getByTestId("settings-cancel").click();
   await expect
     .poll(() => workspace.evaluate((element) => getComputedStyle(element).zoom))
     .toBe("1");
   await expect(workspace).toHaveAttribute("data-density", "comfortable");
+  await expect(row).toHaveCSS("min-height", "36px");
   expect(savedSettings()).toEqual({});
 
   await openSettings(page);

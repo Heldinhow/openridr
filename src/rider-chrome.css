@@ -1,32 +1,63 @@
-/* Rider New UI: tool windows and editor are rounded islands on the window frame, with a gap between them. */
+/* A continuous dark workspace: the explorer stays beside both working areas. */
 .workspace-view {
+  --bg: var(--workspace-bg);
+  --panel: var(--workspace-panel);
+  --raised: var(--workspace-raised);
+  --chrome: var(--workspace-chrome);
+  --select: var(--workspace-select);
+  --select-row: var(--workspace-select-row);
+  --select-row-focus: var(--workspace-select-row-focus);
+  --tab-active-surface: var(--workspace-tab-active-surface);
+  --tab-active-border: var(--workspace-tab-active-border);
   background: var(--chrome);
   gap: 4px;
   padding: 0 4px 4px;
 }
 
-/* The bottom tool window extends beneath both the editor and the left slot. */
 .workspace-view .side,
 .workspace-view .splitter.vertical {
-  grid-row: 2 / 4;
+  grid-row: 2 / 6;
 }
 
 .workspace-view > .output,
 .workspace-view .splitter.horizontal {
-  grid-column: 2 / 5;
+  grid-column: 4;
 }
 
 .workspace-view .side,
 .workspace-view .editor-pane,
 .workspace-view > .output {
   border: 0;
-  border-radius: var(--r-lg);
+  border-radius: 0;
   overflow: hidden;
 }
 
 .workspace-view .side {
+  border-right: 1px solid var(--line);
   overflow: auto;
 }
+
+.workspace-view > .output {
+  border-top: 1px solid var(--line);
+}
+
+.workspace-view .toolbar,
+.workspace-view .toolrail,
+.workspace-view .side,
+.workspace-view .side .panel-title {
+  background: var(--chrome);
+}
+
+.workspace-view .side .panel-title {
+  min-height: 40px;
+  padding-left: 12px;
+}
+
+.workspace-view .sol-tree { padding: 8px 8px; }
+.workspace-view .side .tree-row.sol-row { min-height: 36px; }
+.workspace-view[data-density="compact"] .side .tree-row.sol-row { min-height: var(--control-h); }
+.workspace-view .bottom-tabs { border-bottom: 1px solid var(--line); }
+.workspace-view .output .panel-body { background: var(--panel); }
 
 .workspace-view .splitter {
   background: transparent;
@@ -68,7 +99,7 @@
   background: transparent;
 }
 
-/* Rider: the active editor tab is a discreet blue pill; inactive tabs carry no box. */
+/* Neutral active tabs keep focus on the file rather than the chrome. */
 .tabbar .tab.active {
   background: var(--tab-active-surface);
   border-color: var(--tab-active-border);
