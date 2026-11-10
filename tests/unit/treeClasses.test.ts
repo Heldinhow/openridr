@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fileKind, fileToken, type FileKind } from "../../src/solutionVisuals";
+import { fileKind } from "../../src/solutionVisuals";
 
 // Every class the Solution tree renders has a rule behind it: no element carries a class that the
 // stylesheets do not know about. This is the guard for "affordances that lie" — a class that only
@@ -15,9 +15,7 @@ const COMPONENTS = [
   "src/SolutionTree.tsx",
   "src/FileIcon.tsx",
   "src/icons/FolderIcon.tsx",
-  "src/icons/DependencyGlyph.tsx",
-  "src/icons/RuntimeGlyph.tsx",
-  "src/icons/fileGlyphs.tsx",
+  "src/icons/NugetGlyph.tsx",
   "src/icons/ProjectIcon.tsx",
 ];
 
@@ -52,20 +50,11 @@ describe("Solution tree classes", () => {
     expect(missing).toEqual([]);
   });
 
-  test("every tint and project-kind value has a rule", () => {
-    const kinds: FileKind[] = [
-      "csharp", "solution", "project", "dotsettings", "props", "json", "xml", "razor", "resource",
-      "markdown", "text", "yaml", "docker", "git", "config", "script", "powershell", "batch", "css",
-      "html", "image", "license", "file",
-    ];
-    for (const kind of kinds) {
-      const tint = `tint-${fileToken(kind)}`;
-      expect(`${tint}: ${hasRule(tint)}`).toBe(`${tint}: true`);
-    }
-    for (const kind of ["console", "library", "test", "web", "unknown"]) {
-      const name = `project-${kind}`;
-      expect(`${name}: ${hasRule(name)}`).toBe(`${name}: true`);
-    }
+  test("the drawing is not a class hook: no tint or project-kind class survived", () => {
+    // The glyphs are third-party SVGs in their own colours, so there is nothing to tint and no
+    // per-kind class for a project row to carry.
+    expect(STYLES).not.toContain("tint-");
+    expect(STYLES).not.toContain("project-console");
     expect(fileKind("Program.cs")).toBe("csharp");
   });
 

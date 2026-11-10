@@ -3,9 +3,8 @@ import { FileIcon } from "./FileIcon";
 import type { GitStatus } from "./git";
 import { call, type EvaluatedPackageRef, type EvaluationProject, type OutlineProject } from "./host/client";
 import { Icon } from "./Icon";
-import { DependencyGlyph } from "./icons/DependencyGlyph";
+import { NugetGlyph } from "./icons/NugetGlyph";
 import { ProjectIcon } from "./icons/ProjectIcon";
-import { RuntimeGlyph } from "./icons/RuntimeGlyph";
 import { SYMBOL_LABEL } from "./icons/symbolKind";
 import { createListingCache, type ListingEntry } from "./solutionListing";
 import { treeGitStatusMap, mergeIgnored, treeQueryId, type TreeGitStatus } from "./solutionGitStatus";
@@ -15,7 +14,7 @@ import {
 } from "./solutionNodes";
 import {
   dedupePackages, fileKind, frameworkRows, packageKey, projectKindOf, projectMeta, symbolKindOf,
-  type ProjectKind, type SymbolKind,
+  type SymbolKind,
 } from "./solutionVisuals";
 import { askTreeQuery } from "./treeQueryRetry";
 import { TreeRow, type MenuPosition } from "./TreeRow";
@@ -606,7 +605,7 @@ export function SolutionTree(p: Props) {
         <TreeRow
           level={level}
           open={isOpen}
-          icon={<ProjectIcon kind={kind} />}
+          icon={<ProjectIcon />}
           name={view.name}
           testId={`tree-project-${view.name}`}
           selected={selected}
@@ -646,7 +645,7 @@ export function SolutionTree(p: Props) {
                 <TreeRow
                   level={level + 1}
                   open={p.expanded.has(depsKey(view.path))}
-                  icon={<DependencyGlyph />}
+                  icon={<NugetGlyph className="dependency-glyph" />}
                   name="Dependencies"
                   testId={`tree-deps-${view.name}`}
                   onClick={() => p.onToggle(depsKey(view.path))}
@@ -657,12 +656,12 @@ export function SolutionTree(p: Props) {
                     {groupRow(
                       "frameworks",
                       "Frameworks",
-                      <RuntimeGlyph />,
+                      <NugetGlyph className="runtime-glyph" />,
                       frameworks.map((framework) => (
                         <TreeRow
                           key={`fw:${framework}`}
                           level={level + 3}
-                          icon={<RuntimeGlyph />}
+                          icon={<NugetGlyph className="runtime-glyph" />}
                           name={framework}
                           testId={`tree-framework-${view.name}-${framework}`}
                           onClick={() => undefined}
@@ -673,12 +672,12 @@ export function SolutionTree(p: Props) {
                     {groupRow(
                       "packages",
                       "Packages",
-                      <Icon name="package" />,
+                      <NugetGlyph className="package-glyph" />,
                       view.packages.map((pkg) => (
                         <TreeRow
                           key={`pkg:${packageKey(pkg)}`}
                           level={level + 3}
-                          icon={<Icon name="package" />}
+                          icon={<NugetGlyph className="package-glyph" />}
                           name={pkg.name}
                           testId={`tree-package-${view.name}-${pkg.name}`}
                           suffix={
@@ -696,15 +695,11 @@ export function SolutionTree(p: Props) {
                       "Projects",
                       <Icon name="solutionFolder" />,
                       view.refs.map((ref) => {
-                        const target = views.find((candidate) => candidate.name === ref);
-                        const refKind: ProjectKind = target
-                          ? projectKindOf(target.kind, target.textKind)
-                          : "unknown";
                         return (
                           <TreeRow
                             key={`ref:${ref}`}
                             level={level + 3}
-                            icon={<ProjectIcon kind={refKind} />}
+                            icon={<ProjectIcon />}
                             name={ref}
                             testId={`tree-ref-${view.name}-${ref}`}
                             onClick={() => undefined}
@@ -738,7 +733,8 @@ export function SolutionTree(p: Props) {
       <TreeRow
         level={0}
         open={rootOpen}
-        icon={<Icon name="solution" />}
+        // The root draws the icon of the file it stands for: the theme's `.sln`/`.csproj` drawing.
+        icon={<FileIcon path={p.workspaceName} />}
         name={p.workspaceName.replace(/\.(slnx?|csproj)$/i, "")}
         testId="tree-root"
         suffix={<span className="tag tree-count">· {countLabel(views.length, "project")}</span>}

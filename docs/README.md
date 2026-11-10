@@ -98,6 +98,7 @@ um merge de `main` conflita por construção. Resolução: ficam **as duas entra
 e as antigas na ordem em que entraram — nunca reordenar nem reescrever entrada velha.
 
 Numeração de tickets nas pastas históricas **reinicia por pasta** (`tickets/01` ≠ `tickets-mvp/01`): cite sempre a pasta. Ticket novo é GitHub issue: cite pelo número (`#58`).
+| Ícones da Solution Explorer: Material Icon Theme no lugar do Seti (#360) | — (issue #360) | #360 (GitHub) | — | [evidence/solution-file-icons-material.md](evidence/solution-file-icons-material.md), `evidence/solution-file-icons-material/*.png` |
 
 ## Histórico (não use como estado atual)
 

@@ -1,14 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fileKind, fileToken, type FileKind } from "../../src/solutionVisuals";
+import { fileIcon, folderIcon, type FileIconName, type FolderIconName } from "../../src/solutionVisuals";
 
-// The palette is data: this reads the shipped CSS, not a copy of it. A token that fails the floor
-// on any row surface fails here, before the app is opened.
+// The drawings are third-party files shipped unmodified, so the palette is data: this reads the
+// SVGs and the shipped CSS, never a copy of either. A fill that fails the floor on the resting row
+// surface fails here, before the app is opened.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const styles = readFileSync(resolve(root, "src/styles.css"), "utf8");
-const treeStyles = readFileSync(resolve(root, "src/solution-icons.css"), "utf8");
+const fileDir = resolve(root, "public/file-icons");
+const folderDir = resolve(root, "public/folder-icons");
 
 type Rgb = [number, number, number];
 
@@ -26,19 +28,6 @@ function hex(value: string): Rgb {
   return [0, 2, 4].map((i) => Number.parseInt(digits.slice(i, i + 2), 16)) as Rgb;
 }
 
-function rgba(value: string): { rgb: Rgb; alpha: number } {
-  const match = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/.exec(value);
-  if (!match) throw new Error(`not an rgb colour: ${value}`);
-  return {
-    rgb: [Number(match[1]), Number(match[2]), Number(match[3])],
-    alpha: match[4] === undefined ? 1 : Number(match[4]),
-  };
-}
-
-function over(foreground: Rgb, background: Rgb, alpha: number): Rgb {
-  return [0, 1, 2].map((i) => Math.round(alpha * foreground[i] + (1 - alpha) * background[i])) as Rgb;
-}
-
 function channel(value: number): number {
   const v = value / 255;
   return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
@@ -53,73 +42,83 @@ function contrast(a: Rgb, b: Rgb): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-const panel = hex(token(styles, "panel"));
-const hover = over(rgba(token(styles, "accent-surface")).rgb, panel, rgba(token(styles, "accent-surface")).alpha);
-const noIndex = over(rgba(/\.sol-row\.no-index\s*\{\s*background:\s*([^;]+);/.exec(treeStyles)![1]).rgb, panel, rgba(/\.sol-row\.no-index\s*\{\s*background:\s*([^;]+);/.exec(treeStyles)![1]).alpha);
-const noIndexHover = over(rgba(/\.sol-row\.no-index:hover\s*\{\s*background:\s*([^;]+);/.exec(treeStyles)![1]).rgb, panel, rgba(/\.sol-row\.no-index:hover\s*\{\s*background:\s*([^;]+);/.exec(treeStyles)![1]).alpha);
+/** Every fill the SVG paints with, lowercased; the theme never uses `currentColor`. */
+function fillsOf(svg: string): string[] {
+  return [...new Set([...svg.matchAll(/fill="(#[0-9a-fA-F]{6})"/g)].map((match) => match[1].toLowerCase()))];
+}
 
-/** Every surface a tree row can paint behind a glyph. */
-const SURFACES: Record<string, Rgb> = {
-  panel,
-  hover,
-  raised: hex(token(styles, "raised")),
-  select: hex(token(styles, "select")),
-  "select-row-focus": hex(token(styles, "select-row-focus")),
-  "no-index": noIndex,
-  "no-index hover": noIndexHover,
-};
-
-/** The coloured `--icon-*` tokens of the dark theme, in declaration order. */
-const iconTokens = [...styles.matchAll(/--(icon-[a-z-]+):\s*(#[0-9a-f]{6});/gi)].map((match) => match[1]);
-
-const KINDS: FileKind[] = [
-  "csharp", "solution", "project", "dotsettings", "props", "json", "xml", "razor", "resource",
-  "markdown", "text", "yaml", "docker", "git", "config", "script", "powershell", "batch", "css",
-  "html", "image", "license", "file",
+const FILE_ICONS: FileIconName[] = [
+  "csharp", "visualstudio", "fsharp", "xml", "settings", "json", "xaml", "razor", "markdown",
+  "mdx", "yaml", "document", "console", "powershell", "css", "sass", "less", "html", "image",
+  "svg", "git", "editorconfig", "docker", "license", "readme", "nodejs", "tsconfig", "nuget",
+  "tune", "file",
 ];
 
-describe("Solution Explorer palette", () => {
-  test("the tree uses at most ten coloured tokens", () => {
-    // The ceiling is the point of the palette: colour only where it disambiguates.
-    expect(iconTokens.length <= 10).toBe(true);
+const FOLDER_ICONS: FolderIconName[] = [
+  "folder", "folder-src", "folder-test", "folder-docs", "folder-config", "folder-public",
+  "folder-dist", "folder-github", "folder-vscode", "folder-scripts", "folder-resource",
+  "folder-controller", "folder-class", "folder-views", "folder-migrations",
+];
+
+const PANEL = hex(token(styles, "panel"));
+
+describe("Solution Explorer icon assets", () => {
+  test("every icon the resolver can name has a shipped SVG, and nothing is shipped unused", () => {
+    const files = readdirSync(fileDir).sort();
+    expect(files).toEqual(FILE_ICONS.map((name) => `${name}.svg`).sort());
+    const folders = readdirSync(folderDir).sort();
+    expect(folders).toEqual(
+      FOLDER_ICONS.flatMap((name) => [`${name}.svg`, `${name}-open.svg`]).sort(),
+    );
   });
 
-  test("every token a kind names exists in the CSS", () => {
-    for (const kind of KINDS) {
-      const name = fileToken(kind);
-      if (name === "muted") {
-        expect(token(styles, "muted")).not.toBeUndefined();
-      } else {
-        expect(iconTokens).toContain(`icon-${name}`);
-      }
+  test("the resolver only ever returns a name that is shipped", () => {
+    for (const path of ["Program.cs", "OrderDesk.sln", "nuget.config", "README.md", "tool.exe"]) {
+      expect(FILE_ICONS).toContain(fileIcon(path));
+    }
+    for (const name of ["src", "obj", ".github", "Whatever"]) {
+      expect(FOLDER_ICONS).toContain(folderIcon(name));
     }
   });
 
-  test("every coloured token clears 3:1 on every row surface", () => {
+  test("every fill clears 3:1 on the resting row surface", () => {
     const failures: string[] = [];
-    for (const name of iconTokens) {
-      const colour = hex(token(styles, name));
-      for (const [surface, background] of Object.entries(SURFACES)) {
-        const ratio = contrast(colour, background);
-        if (ratio < 3) failures.push(`--${name} on ${surface}: ${ratio.toFixed(2)}:1`);
+    for (const [dir, names] of [
+      [fileDir, FILE_ICONS.map((name) => `${name}.svg`)],
+      [folderDir, FOLDER_ICONS.flatMap((name) => [`${name}.svg`, `${name}-open.svg`])],
+    ] as [string, string[]][]) {
+      for (const name of names) {
+        for (const fill of fillsOf(readFileSync(resolve(dir, name), "utf8"))) {
+          const ratio = contrast(hex(fill), PANEL);
+          if (ratio < 3) failures.push(`${name} ${fill}: ${ratio.toFixed(2)}:1`);
+        }
       }
     }
     expect(failures).toEqual([]);
   });
 
-  test("--icon-git is raised above the Seti reference value", () => {
-    // Seti's `_git` #41535b measures 1.55:1 on the focused row; the shipped value has to pass.
-    const git = hex(token(styles, "icon-git"));
-    expect(git).not.toEqual([0x41, 0x53, 0x5b]);
-    expect(contrast(git, SURFACES["select-row-focus"]) >= 3).toBe(true);
+  test("the theme's own palette is kept, including the fills that dip on the focused row", () => {
+    // The focused row is #343434 and the theme is not adjusted for it: these are the four file
+    // drawings and the three folder bodies that measure under 3:1 there. The value is the theme's,
+    // and the filename next to the glyph carries the information the colour reinforces.
+    const focused = hex(token(styles, "select-row-focus"));
+    const below = (dir: string, name: string) =>
+      Math.min(...fillsOf(readFileSync(resolve(dir, name), "utf8")).map((fill) => contrast(hex(fill), focused)));
+    for (const name of ["visualstudio.svg", "css.svg", "less.svg", "tsconfig.svg"]) {
+      expect(`${name}: ${below(fileDir, name) < 3}`).toBe(`${name}: true`);
+    }
+    for (const name of ["folder-github.svg", "folder-scripts.svg"]) {
+      expect(`${name}: ${below(folderDir, name) < 3}`).toBe(`${name}: true`);
+    }
+    // Everything else clears the focused row too.
+    for (const name of ["csharp.svg", "json.svg", "markdown.svg", "nuget.svg", "file.svg"]) {
+      expect(`${name}: ${below(fileDir, name) >= 3}`).toBe(`${name}: true`);
+    }
   });
 
-  test("structure carries no type colour", () => {
-    // Folders, Dependencies, Frameworks and Packages are structure: --muted, never an --icon-*.
-    for (const name of iconTokens) {
-      expect(["icon-solution", "icon-solution-folder", "icon-folder", "icon-dependencies", "icon-package", "icon-framework"]).not.toContain(name);
-    }
-    expect(fileToken(fileKind("App.sln"))).toBe("muted");
-    expect(fileToken(fileKind("tool.exe"))).toBe("muted");
+  test("no Seti asset or token survived", () => {
+    expect(styles).not.toContain("seti");
+    expect(styles).not.toContain("--icon-");
+    expect(readdirSync(resolve(root, "public"))).not.toContain("seti.woff");
   });
 });

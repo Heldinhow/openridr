@@ -39,16 +39,6 @@
   src: url("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2-variations");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
-/* Seti file glyphs, vendored from the VS Code theme (MIT); provenance in THIRD-PARTY-NOTICES.md.
-   `block` keeps the fallback font from painting a wrong glyph while the 37 KB file loads. */
-@font-face {
-  font-family: "seti";
-  font-style: normal;
-  font-weight: normal;
-  font-display: block;
-  src: url("./assets/seti.woff") format("woff");
-}
-
 /* Tokens follow DESIGN.md (T3 Code structure, OpenRidr blue). Surfaces rise by alpha; 1px lines separate. */
 :root {
   --fs-title: 20px;
@@ -139,22 +129,6 @@
   --sans: "Inter Variable", -apple-system, system-ui, sans-serif;
   --mono: "JetBrains Mono Variable", ui-monospace, Menlo, monospace;
 
-  /* Solution Explorer type colours: the Seti reference palette, one token per colour family.
-     Structure (folders, Dependencies, Frameworks, Packages) is not a type and uses --muted.
-     Dark values are the shipped theme; the light values in the @supports block are
-     forward-compatible only (the light theme is not distributed). */
-  --icon-seti-blue: #519aba;
-  --icon-seti-yellow: #cbcb41;
-  --icon-seti-purple: #a074c4;
-  --icon-seti-green: #8dc149;
-  --icon-seti-orange: #e37933;
-  /* The Seti `_git` colour is #41535b, which measures 1.55:1 on the focused row; it is raised to
-     the closest slate that clears 3:1 there (3.27:1) and keeps the reference's hue. */
-  --icon-git: #708691;
-  --icon-project-console: #7cc0ff;
-  --icon-project-library: #8ed39a;
-  --icon-project-test: #e0b76e;
-  --icon-project-web: #7fd3e8;
   /* Git status of a tree file row. Brighter than Rider's palette on purpose: the name keeps
      4.5:1 or better over panel, hover, the selected/focused row and the no-index row in the
      shipped dark theme (measurements in docs/evidence/solution-git-status.md). */
@@ -168,16 +142,6 @@
 /* `light-dark()` is used only where the engine supports it; the dark fallback above stays valid. */
 @supports (color: light-dark(#000, #fff)) {
   :root {
-    --icon-seti-blue: light-dark(#498ba7, #519aba);
-    --icon-seti-yellow: light-dark(#b7b73b, #cbcb41);
-    --icon-seti-purple: light-dark(#9068b0, #a074c4);
-    --icon-seti-green: light-dark(#7fae42, #8dc149);
-    --icon-seti-orange: light-dark(#cc6d2e, #e37933);
-    --icon-git: light-dark(#4b5f68, #708691);
-    --icon-project-console: light-dark(#12558c, #7cc0ff);
-    --icon-project-library: light-dark(#20663a, #8ed39a);
-    --icon-project-test: light-dark(#7a4f00, #e0b76e);
-    --icon-project-web: light-dark(#0f5e70, #7fd3e8);
     --git-modified: light-dark(#1f5f9e, #82c0f0);
     --git-added: light-dark(#2f6f24, #8ad07d);
     --git-untracked: light-dark(#8a4a12, #eda773);
@@ -3483,36 +3447,17 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .explorer-heading { flex-wrap: nowrap; }
 .explorer-tools { flex: 0 0 auto; gap: 0; }
 
-/* Solution Explorer visual language: type is carried by a tinted glyph, never by extra chips.
-   The `.sol-row .tree-icon` prefix keeps a selected row from flattening every type to --fg. */
+/* Solution Explorer visual language: the drawing carries the type, never an extra chip. Every
+   glyph is a 16px Material Icon Theme SVG in the theme's own colours, so nothing here tints it:
+   a selected row must not flatten the drawing to --fg. */
 .tree-icon { flex: 0 0 16px; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; }
 .file-icon { display: inline-flex; align-items: center; justify-content: center; position: relative; }
-.file-glyph { width: 16px; height: 16px; display: block; }
-/* Seti glyphs are a font: a 20px em whose drawing is ~12px, centred in the 16px icon slot — the
-   same 150% of a 13px label that VS Code renders. `line-height: 1` puts the baseline at the bottom
-   of the em box, so the ink lands in the middle of the slot (measured; see evidence). */
-.seti-glyph {
-  font-family: "seti";
-  font-size: 20px;
-  line-height: 1;
-  font-weight: normal;
-  font-style: normal;
-  display: block;
-}
-.folder-glyph, .runtime-glyph { width: 16px; height: 16px; display: block; }
-/* Type colour is one of the Seti families; no component carries a hex. */
-:is(.sol-row .tree-icon, .tabbar .tab-label, .commit-file, .action-row) .tint-seti-blue { color: var(--icon-seti-blue); }
-:is(.sol-row .tree-icon, .tabbar .tab-label, .commit-file, .action-row) .tint-seti-yellow { color: var(--icon-seti-yellow); }
-:is(.sol-row .tree-icon, .tabbar .tab-label, .commit-file, .action-row) .tint-seti-purple { color: var(--icon-seti-purple); }
-:is(.sol-row .tree-icon, .tabbar .tab-label, .commit-file, .action-row) .tint-seti-green { color: var(--icon-seti-green); }
-:is(.sol-row .tree-icon, .tabbar .tab-label, .commit-file, .action-row) .tint-seti-orange { color: var(--icon-seti-orange); }
-:is(.sol-row .tree-icon, .tabbar .tab-label, .commit-file, .action-row) .tint-git { color: var(--icon-git); }
-:is(.sol-row .tree-icon, .tabbar .tab-label, .commit-file, .action-row) .tint-muted { color: var(--muted); }
-.sol-row .tree-icon .project-icon.project-console { color: var(--icon-project-console); }
-.sol-row .tree-icon .project-icon.project-library { color: var(--icon-project-library); }
-.sol-row .tree-icon .project-icon.project-test { color: var(--icon-project-test); }
-.sol-row .tree-icon .project-icon.project-web { color: var(--icon-project-web); }
-.sol-row .tree-icon .project-icon.project-unknown { color: var(--muted); }
+.file-glyph,
+.folder-glyph,
+.project-icon,
+.dependency-glyph,
+.runtime-glyph,
+.package-glyph { width: 16px; height: 16px; display: block; flex: 0 0 16px; }
 
 /* Symlink: a chain sticker on the glyph corner. The row description says "not followed", so the
    marker is not the only channel; a symlinked folder loses its chevron and never expands. */
