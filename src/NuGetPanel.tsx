@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "./Icon";
 import { call, messageOf, type OutlineProject } from "./host/client";
+import { effectiveTfm } from "./tfm";
 
 export type NuGetPackage = {
   id: string;
@@ -337,12 +338,18 @@ export function NuGetPanel({
     setPlanError(null);
     setNotice(null);
     setPlan(null);
+    // A project with one TFM has no choice to make; the plan names it instead of "not selected".
+    const targetFramework = effectiveTfm(
+      null,
+      projects.find((project) => project.path === selected)?.tfms ?? [],
+    );
     try {
       const answer = await call<NuGetPlan>("nuget.planUpdate", {
         project: selected,
         id: itemId,
         version,
         install: true,
+        ...(targetFramework ? { targetFramework } : {}),
       });
       setInstallPlan({ plan: answer, itemId });
     } catch (caught) {
@@ -1272,7 +1279,7 @@ export function NuGetPanel({
             role={update.state === "ok" ? "status" : "alert"}
           >
             {update.state === "ok"
-              ? `Updated ${update.package} from ${update.fromVersion ?? "unknown"} to ${update.version}.`
+              ? `Updated ${update.package} from ${update.fromVersion ?? "not referenced"} to ${update.version}.`
               : (update.message ?? "dotnet add failed.")}{" "}
             <span data-testid="nuget-update-exit">{exitText(update.exit)}</span>
           </p>
@@ -1330,7 +1337,7 @@ export function NuGetPanel({
             {batchResult.items.map((item) => (
               <li key={`${item.project}:${item.package}`} data-testid={`nuget-batch-item-${item.package}`}>
                 <span className={`tag ${item.state === "ok" ? "success" : "error"}`}>{item.state}</span>{" "}
-                <code>{item.package}</code> {item.fromVersion ?? "unknown"} → {item.version} ·{" "}
+                <code>{item.package}</code> {item.fromVersion ?? "not referenced"} → {item.version} ·{" "}
                 {item.project}
                 {item.message && <span className="error"> · {item.message}</span>}
               </li>
