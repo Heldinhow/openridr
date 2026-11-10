@@ -29,10 +29,21 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
       await page.screenshot({ path: path.join(directory, `${name}-${viewport.width}x${viewport.height}.png`) });
     };
     await capture("welcome");
+    // The slice palette is scoped to the workspace: Welcome keeps the general tokens.
+    const palette = (selector: string) =>
+      page.locator(selector).evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          bg: style.getPropertyValue("--bg").trim(),
+          chrome: style.getPropertyValue("--chrome").trim(),
+        };
+      });
+    expect(await palette(".setup-screen")).toEqual({ bg: "#1e1f22", chrome: "#17181a" });
     await page.getByTestId("workspace-path-input").fill(path.resolve("fixtures/OrderDesk/OrderDesk.sln"));
     await page.getByTestId("workspace-open").click();
     await page.getByTestId("trust-prompt-restricted").click();
     await expect(page.getByTestId("status-mode")).toHaveText("Restricted mode");
+    expect(await palette(".workspace-view")).toEqual({ bg: "#090909", chrome: "#050505" });
     const tree = page.getByTestId("tree");
     const editor = page.getByRole("region", { name: "Editor", exact: true });
     const output = page.getByRole("region", { name: "Bottom panel" });
