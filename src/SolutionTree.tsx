@@ -6,7 +6,7 @@ import { Icon } from "./Icon";
 import { DependencyGlyph } from "./icons/DependencyGlyph";
 import { ProjectIcon } from "./icons/ProjectIcon";
 import { RuntimeGlyph } from "./icons/RuntimeGlyph";
-import { SYMBOL_LABEL } from "./icons/SymbolMark";
+import { SYMBOL_LABEL } from "./icons/symbolKind";
 import { createListingCache, type ListingEntry } from "./solutionListing";
 import { treeGitStatusMap, mergeIgnored, treeQueryId, type TreeGitStatus } from "./solutionGitStatus";
 import {
@@ -197,11 +197,31 @@ export function SolutionTree(p: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.showAll, p.gitRevision, p.workspaceDir, views.length]);
 
-  // Only files the user can see (open project + open folders) are asked for; filter mode keeps the
-  // badges already known and never starts a scan per keystroke.
+  // The filter asks for the symbol kinds of its results, but only once the typing settles: a scan
+  // per keystroke would stat every match on every key.
+  const [settledFilter, setSettledFilter] = useState("");
+  useEffect(() => {
+    if (!filter) {
+      setSettledFilter("");
+      return;
+    }
+    const timer = setTimeout(() => setSettledFilter(filter), 250);
+    return () => clearTimeout(timer);
+  }, [filter]);
+
+  // Only files the user can see (open project + open folders) are asked for; a filter asks for the
+  // files it shows, so the row can spell out the symbol kind it found.
   const visibleSignature = useMemo(() => {
-    if (filter) return "";
     const visible = new Set<string>();
+    if (filter) {
+      if (settledFilter !== filter) return "";
+      for (const view of views) {
+        for (const source of view.sources) {
+          if (source.toLowerCase().endsWith(".cs") && hit(baseOf(source))) visible.add(source);
+        }
+      }
+      return Array.from(visible).sort().join("\n");
+    }
     if (p.showAll) {
       const walk = (dir: string) => {
         for (const entry of listing[dir] ?? []) {
@@ -229,7 +249,7 @@ export function SolutionTree(p: Props) {
       }
     }
     return Array.from(visible).sort().join("\n");
-  }, [filter, p.expanded, p.showAll, views, listing, sourceSet, projectDirs, ancestors]);
+  }, [filter, settledFilter, p.expanded, p.showAll, views, listing, sourceSet, projectDirs, ancestors]);
 
   // Same walk as `visibleSignature`, without the `.cs` filter: the ignore rules apply to every
   // file row the tree is showing. While a filter is active the rows are not the expanded tree, so
@@ -452,6 +472,12 @@ export function SolutionTree(p: Props) {
         testId={`tree-file-${path}`}
         fileKind={kind}
         symbolKind={symbol}
+        suffix={
+          filter && symbol ? (
+            // The accessible name stays the file name: the text repeats the row description.
+            <span className="tree-symbol-kind" aria-hidden="true">{SYMBOL_LABEL[symbol]}</span>
+          ) : undefined
+        }
         current={p.activePath === path}
         selected={p.activePath === path}
         title={path}

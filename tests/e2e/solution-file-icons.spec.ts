@@ -52,6 +52,21 @@ test("a C# row exposes its symbol kind to assistive tech without changing the na
   await expect(row.locator("[data-icon]")).toHaveCSS("color", "rgb(81, 154, 186)");
 });
 
+test("the filter spells out the symbol kind without changing the accessible name", async ({ page }) => {
+  await open(page, tempCopy());
+  await page.getByTestId("tree-search").click();
+  await page.getByTestId("tree-filter").fill("Order.cs");
+  const row = page.getByTestId("tree-file-src/OrderDesk.Core/Order.cs");
+  await expect(row).toBeVisible();
+  // The kind is text in the row (the scan follows the filter), and the badge is gone for good.
+  await expect(row.locator(".tree-symbol-kind")).toHaveText("class");
+  await expect(row.locator(".symbol-mark")).toHaveCount(0);
+  // The text is aria-hidden: the name is still only the file name, the description still says the kind.
+  await expect(row).toHaveAccessibleName(/Order\.cs$/);
+  await expect(row).toHaveAccessibleDescription("C# class");
+  await shot(page, "depois-filtro-tipo");
+});
+
 test("project rows draw their kind as a glyph in the kind color", async ({ page }) => {
   await open(page, tempCopy());
   for (const [project, kind, color] of [

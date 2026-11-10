@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { DocGlyph, TextGlyph } from "./icons/fileGlyphs";
-import { SYMBOL_LABEL } from "./icons/SymbolMark";
+import { SYMBOL_LABEL } from "./icons/symbolKind";
 import { fileGlyph, fileKind, fileToken, type FileGlyph, type SymbolKind } from "./solutionVisuals";
 
 /**

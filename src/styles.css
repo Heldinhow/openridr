@@ -3471,6 +3471,8 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .sol-row .tag.error { color: var(--error); }
 .sol-row .tag.warning { color: var(--warning); }
 .sol-row .tree-name { flex: 0 0 auto; min-width: 0; }
+/* The symbol kind only becomes text while the tree is filtered; the row description always has it. */
+.sol-row .tree-symbol-kind { color: var(--muted); font-size: var(--fs-meta); }
 .explorer-tools button.active { background: var(--accent-surface-strong); color: var(--fg); }
 .tree-filter { margin: 6px 10px 2px; padding: var(--sp-1) var(--sp-2); min-height: 28px; }
 .explorer-heading { flex-wrap: nowrap; }
