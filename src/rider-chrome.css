@@ -1,14 +1,5 @@
 /* A continuous dark workspace: the explorer stays beside both working areas. */
 .workspace-view {
-  --bg: var(--workspace-bg);
-  --panel: var(--workspace-panel);
-  --raised: var(--workspace-raised);
-  --chrome: var(--workspace-chrome);
-  --select: var(--workspace-select);
-  --select-row: var(--workspace-select-row);
-  --select-row-focus: var(--workspace-select-row-focus);
-  --tab-active-surface: var(--workspace-tab-active-surface);
-  --tab-active-border: var(--workspace-tab-active-border);
   background: var(--chrome);
   gap: 4px;
   padding: 0 4px 4px;

@@ -56,21 +56,11 @@
   --sp-5: 24px;
   --sp-6: 32px;
   color-scheme: dark;
-  /* Workspace slice palette; aliases are scoped to .workspace-view. */
-  --workspace-bg: #090909;
-  --workspace-panel: #101010;
-  --workspace-raised: #1b1b1b;
-  --workspace-chrome: #050505;
-  --workspace-select: #282828;
-  --workspace-select-row: #262626;
-  --workspace-select-row-focus: #343434;
-  --workspace-tab-active-surface: #252525;
-  --workspace-tab-active-border: #3a3a3a;
-  /* Rider New UI dark: editor island darkest, tool-window islands graphite, window frame between. */
-  --bg: #1e1f22;
-  --panel: #2b2d30;
-  --raised: #2b2d30;
-  --chrome: #17181a;
+  /* T3-inspired dark shell: true-black canvas, near-black surfaces, 1 px lines. */
+  --bg: #090909;
+  --panel: #101010;
+  --raised: #1b1b1b;
+  --chrome: #050505;
   --fg: #f5f5f5;
   /* #b3b3b3 keeps 4.5:1 over the 8% hover surface and the selected tree row, not only over the panel. */
   --muted: #b3b3b3;
@@ -87,7 +77,7 @@
   --line: rgba(255, 255, 255, 0.08);
   --line-internal: rgba(255, 255, 255, 0.06);
   --line-input: rgba(255, 255, 255, 0.11);
-  --select: #1e3358;
+  --select: #282828;
   --error: #f87171;
   --warning: #fbbf24;
   --success: #34d399;
@@ -102,12 +92,12 @@
   --border: #3c3f41;
   --status-error: #f75464;
   --status-warning: #e5b94e;
-  --tab-active-surface: #263552;
-  --tab-active-border: #33496f;
+  --tab-active-surface: #252525;
+  --tab-active-border: #3a3a3a;
   --commit-group-surface: #304a77;
   --commit-group-text: #b8c5da;
-  --select-row: #43454a;
-  --select-row-focus: #2e436e;
+  --select-row: #262626;
+  --select-row-focus: #343434;
   --focus-ring-strong: #a9c7ff;
   --warning-surface: #2a1a1a;
   --success-surface: #16241a;
@@ -411,7 +401,7 @@ p {
   justify-content: space-between;
   gap: 20px;
   padding: 7px 14px;
-  background: var(--panel);
+  background: var(--chrome);
   border-bottom: 1px solid var(--line);
   flex: 0 0 auto;
 }
@@ -427,7 +417,7 @@ p {
   flex-wrap: nowrap;
   min-height: 52px;
   padding: 6px 10px;
-  background: var(--panel);
+  background: var(--chrome);
   border-bottom: 1px solid var(--line);
   flex: 0 0 auto;
   /* visible: any overflow value clips the dropdowns (trust, run config, branches, ⋮); .workspace-view clips at the window edge */
@@ -443,7 +433,7 @@ p {
 kbd { font: 11px var(--sans); color: var(--muted); }
 .toolbar-menu { position: relative; flex: 0 0 auto; }
 .toolbar-menu > :is(summary, button) { cursor: pointer; list-style: none; padding: 3px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); font-weight: inherit; }
-.menu-content { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; width: 240px; padding: 6px; display: grid; gap: var(--sp-1); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-menu); }
+.menu-content { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; width: 240px; padding: 6px; display: grid; gap: var(--sp-1); background: var(--raised); border: 1px solid var(--line); box-shadow: var(--shadow-menu); }
 .menu-content button { text-align: left; }
 .project-menu > :is(summary, button) { gap: 6px; padding: 3px 6px; }
 .project-menu .menu-content { left: 0; right: auto; width: 320px; }

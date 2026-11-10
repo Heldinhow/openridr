@@ -30,16 +30,16 @@ que expressão. A marca vive no detalhe preciso, não em decoração.
 
 ## 3. Tokens
 
-Fonte única: `:root` em `src/styles.css`. **Nenhum componente inventa valor fora daqui.** O workspace tem uma paleta própria nesta primeira fatia; as demais telas mantêm os tokens gerais até a aprovação visual e a expansão da #350.
+Fonte única: `:root` em `src/styles.css`. **Nenhum componente inventa valor fora daqui.** A paleta escura inspirada no T3 Code vale para o app inteiro desde a #350: welcome, setup, trust, diálogos, menus, configurações e painéis leem os mesmos tokens do workspace.
 
 ### 3.1 Cor
 
 | Papel | Token | Valor | Uso |
 |---|---|---|---|
-| Fundo da janela | `--bg` | `#1e1f22` | canvas, editor |
-| Painel | `--panel` | `#2b2d30` | side, tool window |
-| Superfície elevada | `--raised` | `#2b2d30` | diálogo, popover |
-| Moldura | `--chrome` | `#17181a` | toolbar, rail, status |
+| Fundo da janela | `--bg` | `#090909` | canvas, editor |
+| Painel | `--panel` | `#101010` | side, tool window |
+| Superfície elevada | `--raised` | `#1b1b1b` | diálogo, popover, menu |
+| Moldura | `--chrome` | `#050505` | toolbar, chrome, rail, status |
 | Texto | `--fg` | `#f5f5f5` | corpo |
 | Texto secundário | `--muted` | `#b3b3b3` | metadado, dica (4,5:1 também sobre hover e linha selecionada) |
 | Texto desabilitado | `--disabled` | `#737373` | controle inativo |
@@ -49,16 +49,16 @@ Fonte única: `:root` em `src/styles.css`. **Nenhum componente inventa valor for
 | **Ação como texto** | `--accent-text` | **hoje** `#8ab2ff` | link, aba ativa, branch atual (6,51:1 sobre painel) |
 | Superfície de hover | `--accent-surface` / `-strong` | branco 4% / 8% | hover de item neutro |
 | Linha | `--line` / `--line-internal` / `--line-input` | branco 8% / 6% / 11% | separadores e borda de campo |
-| Seleção | `--select` / `--select-row` / `--select-row-focus` | `#1e3358` / `#43454a` / `#2e436e` | seleção de aba, linha da árvore, linha com foco |
+| Seleção | `--select` / `--select-row` / `--select-row-focus` | `#282828` / `#262626` / `#343434` | seleção de aba, linha da árvore, linha com foco |
 | Erro / aviso / sucesso / info | `--error` `--warning` `--success` `--info` | `#f87171` `#fbbf24` `#34d399` `#60a5fa` | texto e ícone |
 | Sólidos | `--error-solid` `--warning-solid` `--success-solid` `--info-solid` | `#ef4444` `#f59e0b` `#10b981` `#3b82f6` | preenchimento de selo |
 
-A primeira fatia da #349 também define os tokens `--workspace-*` em `:root` e os aplica por alias apenas em `.workspace-view`: fundo `#090909`, painel `#101010`, superfície elevada `#1b1b1b`, chrome `#050505`, seleção `#282828`, linha selecionada `#262626` (com foco `#343434`) e aba ativa `#252525` com borda `#3a3a3a`. Welcome e telas fora do workspace mantêm a paleta geral. Essa diferença é transitória e aguarda a aprovação visual.
+A paleta é única desde a #350: não há tokens por superfície nem alias em `.workspace-view`. A aba ativa usa `--tab-active-surface` `#252525` com borda `#3a3a3a`. O welcome e o workspace são a mesma tela em estados diferentes e leem os mesmos valores.
 
 Regras:
 
 - **Superfícies sobem por alfa, não por hex novo.** Elevação = branco a 4%/8% sobre a superfície
-  abaixo. Os tokens `--workspace-*` acima são a exceção explícita da primeira fatia; fora deles, um hex de superfície novo é um bug de sistema.
+  abaixo. Um hex de superfície novo é um bug de sistema.
 - **Azul é ação, foco e seleção.** Não é decoração, não é estado de execução (run/debug são
   `--success`, stop é `--error`).
 - **Cores de tipo e de git** (`--icon-*`, `--git-*`) são dados, não tema: carregam significado de
