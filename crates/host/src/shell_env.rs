@@ -130,7 +130,7 @@ fn resolve(shell: &Path, timeout: Duration) -> Result<Vec<(String, String)>, Fai
 
 /// What one shell run produced.
 #[derive(Debug)]
-struct Output {
+struct ShellOutput {
     bytes: Vec<u8>,
     status: ExitStatus,
 }
@@ -140,7 +140,7 @@ struct Output {
 /// The read happens on its own thread because a full pipe would block the wait; the channel is what
 /// the wait polls, so a grandchild that keeps the pipe open (a daemon an rc file started) costs a
 /// thread, never the app.
-fn capture(child: &mut Child, timeout: Duration) -> Result<Output, Failure> {
+fn capture(child: &mut Child, timeout: Duration) -> Result<ShellOutput, Failure> {
     let mut stdout = child
         .stdout
         .take()
@@ -187,7 +187,7 @@ fn capture(child: &mut Child, timeout: Duration) -> Result<Output, Failure> {
     match (status, bytes) {
         (Some(status), Some(bytes)) => {
             let _ = reader.join();
-            Ok(Output { bytes, status })
+            Ok(ShellOutput { bytes, status })
         }
         // The loop only leaves with both, so this is the timeout path in disguise.
         _ => Err(Failure::Timeout),

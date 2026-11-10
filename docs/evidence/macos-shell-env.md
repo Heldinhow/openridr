@@ -20,6 +20,10 @@ a decisão por plataforma/pai são testados aqui; o caminho Finder → `dotnet r
 - Log: `openridr: shell environment: merged N variable(s) from <shell>` ou o motivo da falha. Nenhum
   valor, em nenhum caminho.
 
+O `DOTNET_ROOT` do shell é mesclado no processo, mas `dotnet_command`/`hostroot` continuam fixando a
+raiz do SDK em cada filho `dotnet` — comportamento existente, não alterado aqui. Quem precisa do SDK
+do usuário continua sendo atendido pelas **Detected SDK root** (`PATH`, `~/.dotnet`, a pasta do app).
+
 ## 2. Testes de host
 
 ```
