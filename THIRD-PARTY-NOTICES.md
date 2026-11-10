@@ -192,6 +192,14 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
+## Simple Icons `c-sharp` — CC0 1.0
+
+`src/icons/fileGlyphs.tsx` (`CSharpGlyph`) contains the Simple Icons `c-sharp` mark
+(https://github.com/simple-icons/simple-icons, CC0 1.0 Universal), taken verbatim from the icon sprite the
+T3 Code file tree ships. It is the hexagonal C# logo used as the `.cs` file icon. Simple Icons asks for
+attribution but does not require it; this notice and the link above are the attribution. Microsoft, C#
+and .NET are trademarks of Microsoft Corporation; OpenRidr is not affiliated with Microsoft.
+
 ## T3 Code (`pingdotgg/t3code`) — MIT
 
 Two things were adapted from the T3 Code repository (MIT): the file-name/extension → icon resolution

@@ -43,7 +43,24 @@ test("a C# row exposes its symbol kind to assistive tech without changing the na
   await expect(row).toHaveAccessibleName(/Order\.cs$/);
   await expect(row.locator("[data-icon]")).toHaveAttribute("aria-hidden", "true");
   await expect(row.locator(".symbol-mark")).toHaveCount(0);
-  await expect(row.locator("[data-icon] text")).toHaveText("C#");
+  // The C# mark is a drawn vector in the C# token, not font-rendered text.
+  await expect(row.locator("[data-icon] text")).toHaveCount(0);
+  await expect(row.locator("[data-icon] svg path")).toHaveCount(1);
+  await expect(row.locator("[data-icon]")).toHaveCSS("color", "rgb(157, 106, 251)");
+});
+
+test("project rows draw their kind as a glyph in the kind color", async ({ page }) => {
+  await open(page, tempCopy());
+  for (const [project, kind, color] of [
+    ["OrderDesk.Cli", "console", "rgb(124, 192, 255)"],
+    ["OrderDesk.Core", "library", "rgb(142, 211, 154)"],
+    ["OrderDesk.Tests", "test", "rgb(224, 183, 110)"],
+  ]) {
+    const icon = page.getByTestId(`tree-project-${project}`).locator(".tree-icon .project-icon");
+    await expect(icon).toHaveClass(new RegExp(`project-${kind}`));
+    await expect(icon.locator("text")).toHaveCount(0);
+    await expect(icon).toHaveCSS("color", color);
+  }
 });
 
 /** Evidence is opt-in: `OPENRIDR_FILE_ICONS_EVIDENCE=docs/evidence/solution-file-icons`. */
@@ -75,7 +92,7 @@ test("file kinds map to the reference glyphs", async ({ page }) => {
     await expect(glyph(testId)).toHaveAttribute("data-icon", icon);
     await expect(glyph(testId).locator("svg")).toHaveCount(1);
   }
-  // The C# glyph is text, not a hexagon or a symbol badge.
+  // The C# glyph is the vendored mark, not a Lucide icon or a symbol badge.
   await expect(glyph("tree-file-src/OrderDesk.Core/Order.cs").locator(".icon")).toHaveCount(0);
   // One glyph per row: a file never stacks two type icons.
   await expect(page.getByTestId("tree-file-README.md").locator("[data-icon]")).toHaveCount(1);
@@ -166,7 +183,8 @@ test("the current row has a rounded selection fill", async ({ page }) => {
 
   await row.click();
   await expect(row).toHaveAttribute("aria-current", "page");
-  await expect(row).toHaveCSS("background-color", "rgb(46, 67, 110)");
+  // The workspace selection is a neutral fill (--workspace-select-row-focus), not blue.
+  await expect(row).toHaveCSS("background-color", "rgb(52, 52, 52)");
   const after = await row.evaluate((el) => ({
     shadow: getComputedStyle(el).boxShadow,
     radius: getComputedStyle(el).borderRadius,
@@ -174,6 +192,7 @@ test("the current row has a rounded selection fill", async ({ page }) => {
   }));
   expect(after.shadow).toBe("none");
   expect(after.radius).not.toBe("0px");
-  expect(after.height).toBeLessThan(36);
+  // One line: the comfortable row is 36 px; a two-layer row would be taller.
+  expect(after.height).toBeLessThanOrEqual(36);
   await shot(page, "depois-selecao");
 });

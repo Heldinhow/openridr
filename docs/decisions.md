@@ -2074,3 +2074,7 @@ Consequência: `crates/host/src/lib.rs` (`expand_home`, `home_dir`, `pick_unavai
 ## 2026-11-09 — Workspace escuro contínuo inspirado no T3 (#348, #349)
 
 A primeira fatia substitui as ilhas arredondadas por uma superfície escura contínua: o Solution Explorer atravessa a altura do editor e da tool window inferior, que passa à coluna do editor. Barra, árvore, abas e código usam uma hierarquia neutra; seleção, sintaxe e diagnósticos continuam distintos. Isto revisita a geometria da decisão UI shape de 2026-10-31, sem remover controles ou migrar preferências: larguras e alturas continuam nos mesmos slots. Referência e limites: [evidence/t3-workspace-349.md](evidence/t3-workspace-349.md). Sem copiar marca, imagens ou funções de agentes; expansão aguarda aprovação visual.
+
+## 2026-11-10 — Ícones da Solution Explorer voltam ao vocabulário do T3 (#349)
+
+O `.cs` volta ao hexágono `C#` do Simple Icons (CC0, do sprite do T3 Code) na cor `--icon-csharp`, e o projeto volta ao glifo por tipo (console, biblioteca, testes, web) nas cores `--icon-project-*`. Substitui o glifo de texto e o retângulo `C#` da entrada "Rider-style explorer icons" (`c626fc2`): eram `<text>` em Arial a 7,5–9,5 px, ilegíveis e dependentes de fonte, e pintavam tudo do mesmo verde fixo. Dependencies, Frameworks e pastas de solução ficam em `--muted`; `solution-icons.css` deixa de ter hex próprio para tipo de arquivo. Sem dependência nova; atribuição restaurada em `THIRD-PARTY-NOTICES.md`.

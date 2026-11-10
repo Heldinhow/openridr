@@ -22,3 +22,7 @@ Na captura de referência, uma navegação escura contínua ocupa a lateral esqu
 - Doctor: SDK 8.0.408 presente, Chromium via `PLAYWRIGHT_CHANNEL=chromium`, TMPDIR curto em filesystem do projeto; bundle macOS e agent-desktop indisponíveis. O detector Impeccable retornou `[]` para os arquivos alterados.
 
 **Não verificado:** app Tauri macOS ARM64 e WebKit, atalhos nativos, Windows e macOS Intel; diagnóstico/breakpoint em sessão de debug real; inspeção sistemática de contraste em todos os estados. A aprovação visual do mantenedor e expansão #350 permanecem pendentes.
+
+## Ícones da árvore
+
+[Captura ampliada da árvore](t3-workspace-349/tree-icons.webp) (Chromium web, restricted, 2×): `.cs` com o hexágono `C#` vetorial em `--icon-csharp`, projeto console/biblioteca com glifos próprios nas cores de tipo, Dependencies/Frameworks em `--muted`, linha atual com preenchimento neutro. `solution-file-icons.spec.ts` + `solution-explorer.spec.ts`: **19 passaram**; o teste novo de glifo por tipo e de `.cs` vetorial falhou antes da mudança. Não verificado no WebKit/macOS.

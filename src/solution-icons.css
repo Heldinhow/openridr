@@ -1,13 +1,7 @@
-/* Solution Explorer glyphs: independent of the window chrome palette. */
-.sol-row .tree-icon .tint-csharp,
-.sol-row .tree-icon .project-icon[class] { color: #5fb865; }
-.sol-row .tree-icon .tint-json { color: #b886e8; }
-.sol-row .tree-icon .tint-markdown,
-.sol-row .tree-icon .tint-docker { color: #5894f5; }
-.sol-row .tree-icon .tint-xml { color: #dc8a57; }
+/* Solution Explorer glyphs: type colors come from the `--icon-*` tokens in styles.css. */
 .sol-row .tree-icon .solution-folder-icon,
 .sol-row .tree-icon .dependency-glyph,
-.sol-row .tree-icon .framework-glyph { color: #b5b8c0; }
+.sol-row .tree-icon .framework-glyph { color: var(--muted); }
 .solution-folder-icon { position: relative; display: inline-flex; }
 .solution-folder-icon svg, .framework-glyph { stroke-width: 1.5; }
 .folder-config-badge { position: absolute; left: 0; bottom: -1px; color: #77adff; background: #263e68; font-family: Arial, sans-serif; font-size: var(--fs-badge); font-weight: 700; line-height: 1; }
