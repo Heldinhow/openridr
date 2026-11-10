@@ -131,7 +131,11 @@ export function SetupScreen({
             {error && (
               <p className="open-error error" role="alert" data-testid="workspace-error">
                 {error}{" "}
-                <span className="muted">Check the path and that the file exists, then try again.</span>
+                <span className="muted">
+                  {/not found|does not exist|no such file/i.test(error)
+                    ? "Check the path and that the file exists, then try again."
+                    : "Fix the problem above and try again."}
+                </span>
               </p>
             )}
             {candidates.length > 1 && (

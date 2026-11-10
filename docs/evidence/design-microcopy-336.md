@@ -31,6 +31,24 @@ O texto real do host continua intacto em todos os erros; a linha de reparo é ac
 ## Specs
 
 - `tests/e2e/welcome.spec.ts` — **9 passed** (inclui o atalho da welcome e o erro de caminho).
+- `tests/e2e/git.spec.ts -g "restricted mode and a non-repository"` — **1 passed** com as novas
+  strings (o spec foi atualizado junto, como o ticket pede).
+
+## Correções da revisão
+
+- A mensagem de "not a repository" virou uma constante (`NOT_A_REPOSITORY`) usada nos dois lugares.
+- A linha de reparo do caminho passou a depender da causa: "not found / does not exist / no such
+  file" recebe a orientação de caminho; qualquer outro erro de abertura recebe "Fix the problem
+  above and try again."
+- O spec do Git foi atualizado para as strings novas (acessível, title e os dois `*-disabled-reason`).
+
+## Resposta a um achado do review (Standards)
+
+O motivo do item desabilitado do menu fica em `title` + `aria-description`, como o ticket manda
+("explicação de item desabilitado em `title`/`aria-description`, não em parágrafo dentro do menu").
+Tornar o item focável exigiria trocar `disabled` por `aria-disabled` e impedir a ação no clique — um
+modelo de interação novo, fora do que o ticket pede; fica registrado como alternativa se o leitor de
+tela não anunciar o motivo.
 
 ## Não verificado
 
