@@ -2881,6 +2881,10 @@ mark.search-hit {
    The ring goes inset: still a full 2 px border, fully inside the button. */
 .toolband-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .status { background: var(--chrome); border-top: 1px solid var(--line); }
+/* A recovery action that cannot run is replaced by its reason, never shown disabled without one. */
+.status > .status-reason { max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+/* One sentence while restore/evaluation runs; no action that cannot act yet. */
+.eval-running { color: var(--fg); }
 
 /* Rider-like Solution tree: quiet metadata, compact rows, blue selection. */
 .side { background: var(--panel); }
