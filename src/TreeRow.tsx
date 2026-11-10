@@ -12,6 +12,8 @@ type Props = {
   /** Omit for folders; the row supplies their folder glyph. */
   icon?: ReactNode;
   name: string;
+  /** Second line under the name, e.g. `console · net8.0 · restore incomplete`. */
+  meta?: ReactNode;
   /** Accessible description read after the name, for information the row only shows as a glyph. */
   description?: string;
   /** Dim text after the name, e.g. "· 2 projects". */
@@ -39,7 +41,7 @@ type Props = {
 };
 
 /** Row indent per level and the left padding of the whole row; the guides mirror both. */
-export const ROW_INDENT = 18;
+export const ROW_INDENT = 16;
 export const ROW_PADDING = 8;
 
 /**
@@ -50,7 +52,7 @@ export const ROW_PADDING = 8;
  * back to "Reload / Share… / Services" (see nativeMenu.ts for the app-wide guard).
  */
 export function TreeRow({
-  level, open, icon, name, description, suffix, selected, current, noIndex, testId, title,
+  level, open, icon, name, meta, description, suffix, selected, current, noIndex, testId, title,
   fileKind, projectKind, projectTfms, symbolKind, symlink, gitStatus, gitLabel, onClick, onMenu, children,
 }: Props) {
   // The description lives outside the row: `aria-describedby` then adds it to the description
@@ -60,7 +62,7 @@ export function TreeRow({
     <>
     <button
       type="button"
-      className={`tree-row sol-row${selected ? " selected" : ""}${noIndex ? " no-index" : ""}`}
+      className={`tree-row sol-row${meta ? " two-line" : ""}${selected ? " selected" : ""}${noIndex ? " no-index" : ""}`}
       style={{ paddingLeft: ROW_PADDING + level * ROW_INDENT }}
       data-level={level}
       data-testid={testId}
@@ -98,7 +100,7 @@ export function TreeRow({
         <span
           key={`guide-${index}`}
           className="tree-guide"
-          style={{ left: ROW_PADDING + index * ROW_INDENT + 6 }}
+          style={{ left: ROW_PADDING + index * ROW_INDENT + 7 }}
           aria-hidden="true"
         />
       ))}
@@ -117,7 +119,10 @@ export function TreeRow({
           </span>
         )}
       </span>
-      <span className="tree-name">{name}</span>
+      <span className="tree-label">
+        <span className="tree-name">{name}</span>
+        {meta && <span className="tree-meta">{meta}</span>}
+      </span>
       {noIndex && <span className="tag">· no index</span>}
       {gitStatus && (
         <span className="tag git-status" title={gitLabel}>

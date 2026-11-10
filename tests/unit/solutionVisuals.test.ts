@@ -7,6 +7,7 @@ import {
   frameworkName,
   frameworkRows,
   packageKey,
+  projectMeta,
   projectKindOf,
   symbolKindOf,
 } from "../../src/solutionVisuals";
@@ -143,6 +144,18 @@ describe("projectKindOf", () => {
     expect(projectKindOf("unknown", "console")).toBe("console");
     expect(projectKindOf(null, null)).toBe("unknown");
     expect(projectKindOf("", "garbage")).toBe("unknown");
+  });
+});
+
+describe("projectMeta", () => {
+  test("the second layer carries only the parts that exist", () => {
+    expect(projectMeta("console", ["net8.0"], null)).toBe("console · net8.0");
+    expect(projectMeta("library", ["net8.0", "netstandard2.0"], "restore incomplete")).toBe(
+      "library · net8.0, netstandard2.0 · restore incomplete",
+    );
+    // An unknown kind is not invented; the TFM and the state still show.
+    expect(projectMeta("unknown", ["net8.0"], "partial context")).toBe("net8.0 · partial context");
+    expect(projectMeta("unknown", [], null)).toBe("");
   });
 });
 

@@ -275,6 +275,25 @@ test("the same file keeps its glyph in the tree, the tab, Find in Files and Sear
   await shot(page, "depois-superficies");
 });
 
+test("a project row has a second layer and the tree indents 16 px per level", async ({ page }) => {
+  await open(page, tempCopy());
+  const row = page.getByTestId("tree-project-OrderDesk.Cli");
+  // The kind is text, not only an aria-hidden glyph, and it is part of the row's accessible name.
+  await expect(row.locator(".tree-meta")).toHaveText("console · net8.0");
+  await expect(row).toHaveAccessibleName(/console/);
+  // 16 px per level: the project is level 1, its files level 2.
+  await expect(row).toHaveCSS("padding-left", "24px");
+  const file = page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs");
+  await expect(file).toHaveCSS("padding-left", "40px");
+  // The density is untouched (36 px comfortable, 32 px compact — settings.spec.ts fixes it);
+  // the project row is the two-layer row and still fits the comfortable height.
+  const fileHeight = (await file.boundingBox())!.height;
+  const projectHeight = (await row.boundingBox())!.height;
+  expect(projectHeight).toBeLessThanOrEqual(44);
+  expect(projectHeight).toBeGreaterThanOrEqual(fileHeight);
+  await shot(page, "depois-projeto-duas-camadas");
+});
+
 test("the current row has a rounded selection fill", async ({ page }) => {
   await open(page, tempCopy());
   const row = page.getByTestId("tree-file-src/OrderDesk.Cli/Program.cs");

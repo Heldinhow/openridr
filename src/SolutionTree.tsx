@@ -14,7 +14,7 @@ import {
   nestSources, visibleSourceFiles, type DependencyGroup, type SourceNode,
 } from "./solutionNodes";
 import {
-  dedupePackages, fileKind, frameworkRows, packageKey, projectKindOf, symbolKindOf,
+  dedupePackages, fileKind, frameworkRows, packageKey, projectKindOf, projectMeta, symbolKindOf,
   type ProjectKind, type SymbolKind,
 } from "./solutionVisuals";
 import { askTreeQuery } from "./treeQueryRetry";
@@ -566,6 +566,13 @@ export function SolutionTree(p: Props) {
     if (filter && sources.length === 0 && !hit(view.name)) return null;
     const kind = projectKindOf(view.kind, view.textKind);
     const frameworks = frameworkRows(view.tfms, kind);
+    // The state tag that used to truncate moves into the second layer, where it has the full width.
+    const restore = p.restoreIncomplete(view.path)
+      ? "restore incomplete"
+      : view.evaluated && view.restore !== "restored"
+        ? (view.restore === "unknown" ? "restore unknown" : "partial context")
+        : null;
+    const meta = projectMeta(kind, view.tfms, restore);
     const hasDeps = view.refs.length > 0 || view.packages.length > 0 || frameworks.length > 0;
     // Dependencies, its groups and the leaves name the project they belong to: their menu is the
     // project menu, so no row of the tree is left without one.
@@ -614,6 +621,7 @@ export function SolutionTree(p: Props) {
             p.onSelectProject(view.path);
             p.onMenu(position, projectTarget, row);
           }}
+          meta={meta || undefined}
           suffix={
             <>
               {isAbsolutePath(view.path) && (
@@ -626,10 +634,6 @@ export function SolutionTree(p: Props) {
                 </span>
               )}
               {view.failed && <span className="tag error">error</span>}
-              {view.evaluated && view.restore !== "restored" && (
-                <span className="tag warning">{view.restore === "unknown" ? "restore unknown" : "partial context"}</span>
-              )}
-              {p.restoreIncomplete(view.path) && <span className="tag warning">restore incomplete</span>}
             </>
           }
         />

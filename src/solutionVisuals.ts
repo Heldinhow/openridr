@@ -221,6 +221,18 @@ export function projectKindOf(
   return "unknown";
 }
 
+/**
+ * Second layer of a project row: `kind · TFM · restore`, only the parts that exist. The kind is
+ * text here because the glyph is `aria-hidden`; the row's accessible name carries it too.
+ */
+export function projectMeta(kind: ProjectKind, tfms: string[], restore: string | null): string {
+  const parts: string[] = [];
+  if (kind !== "unknown") parts.push(kind);
+  if (tfms.length > 0) parts.push(tfms.join(", "));
+  if (restore) parts.push(restore);
+  return parts.join(" · ");
+}
+
 /** Framework row label derived from the TFM only; no version is invented. */
 export function frameworkName(tfm: string, kind: ProjectKind): string | null {
   const normalized = tfm.trim();

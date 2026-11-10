@@ -3114,8 +3114,8 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .side { display: flex; flex-direction: column; }
 .tree-name { flex: 0 1 auto; min-width: 10ch; }
 .tree-row .tag { flex: 0 8 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Project rows are two layers: name on top, kind · TFM · restore state below, aligned under the name.
-   46px = chevron + icon + their gaps; the ::after spacer pushes the tags under the name. */
+/* Project rows are two layers: name on top, `kind · TFM · restore` below, both in the name column.
+   The file/folder rows keep the 22 px density; the project row is the documented two-layer row. */
 .explorer-title { display: inline-flex; align-items: center; gap: var(--sp-1); flex: 0 0 auto; white-space: nowrap; } .explorer-title .icon { width: 12px; height: 12px; color: var(--muted); }
 
 /* ui-shape 04: Problems — two-layer rows (severity · code · message / location · document · origin · state), no horizontal scroll. */
@@ -3470,7 +3470,12 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .sol-row .tag { flex: 0 8 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); white-space: nowrap; }
 .sol-row .tag.error { color: var(--error); }
 .sol-row .tag.warning { color: var(--warning); }
-.sol-row .tree-name { flex: 0 0 auto; min-width: 0; }
+.sol-row .tree-label { display: flex; flex-direction: column; min-width: 0; flex: 0 1 auto; }
+.sol-row .tree-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sol-row .tree-meta { color: var(--muted); font-size: var(--fs-badge); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sol-row.two-line { min-height: 34px; }
+/* A state tag keeps its width; the name ellipsizes first. */
+.sol-row .tag.error, .sol-row .tag.warning { flex: 0 0 auto; }
 /* The symbol kind only becomes text while the tree is filtered; the row description always has it. */
 .sol-row .tree-symbol-kind { color: var(--muted); font-size: var(--fs-meta); }
 .explorer-tools button.active { background: var(--accent-surface-strong); color: var(--fg); }
