@@ -110,10 +110,6 @@ export function fileToken(kind: FileKind): IconToken {
  */
 const FILE_NAMES: Record<string, FileKind> = {
   dockerfile: "docker",
-  "docker-compose.yml": "docker",
-  "docker-compose.yaml": "docker",
-  "docker-compose.override.yml": "docker",
-  "docker-compose.override.yaml": "docker",
   "compose.yml": "docker",
   "compose.yaml": "docker",
   ".dockerignore": "docker",

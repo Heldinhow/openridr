@@ -128,6 +128,9 @@ unitário fixa:
   Frameworks com glifo próprio, filtro com o tipo em texto, o mesmo glifo em quatro superfícies,
   segunda camada do projeto e recuo de 16 px, seleção arredondada.
 - `solution-explorer.spec.ts`, `medium-nav-search.spec.ts`, `solution-git-status.spec.ts` — verdes.
+- `qa4-eval-failed.spec.ts` — verde, com a asserção nova de prioridade da tag: numa linha de projeto
+  com avaliação falha, `.tag.error` tem `flex-shrink: 0` e `.tree-name` tem `flex-shrink: 1`, então o
+  nome é o que encolhe primeiro.
 - `settings.spec.ts` — 2 falhas de ambiente (atalho `⌘,` e rótulo `⇧⌘F9` são do macOS; o host reporta
   `linux`, então o `primary` é Ctrl), não do diff. O mesmo vale para 3 falhas de
   `medium-nav-find-in-files.spec.ts` (`Meta+Shift+F`).
