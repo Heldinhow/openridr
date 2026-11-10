@@ -2354,3 +2354,7 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
 - **Não verificado:** `x86_64` (mesmo pino e mesmo caminho de extração, sem build nem execução);
   macOS (só a suíte de CI roda os testes de fronteira de lá); `.deb`/AppImage/updater (fora do
   escopo da issue).
+
+## Workspace inspirado no T3 (#349)
+
+`rider-chrome.css` posiciona a árvore junto ao editor e à tool window, preservando os splitters e as preferências existentes, e aplica superfícies e abas neutras ao workspace. `CodeEditor.tsx` ajusta gutter, linha ativa, seleção e sintaxe mantendo diagnósticos e marcas de debug. Os testes de layout cobrem três tamanhos e teclado; o teste de Settings cobre ambas as densidades e persistência. Evidência, capturas e falhas da execução em [evidence/t3-workspace-349.md](evidence/t3-workspace-349.md). Não verificado: app desktop macOS ARM64, WebKit, Windows/macOS Intel e os fluxos de build e atalhos que falharam no Chromium Linux; não há aprovação visual do mantenedor.
