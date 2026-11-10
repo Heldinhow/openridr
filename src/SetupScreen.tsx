@@ -129,7 +129,10 @@ export function SetupScreen({
               />
             )}
             {error && (
-              <p className="open-error error" role="alert" data-testid="workspace-error">{error}</p>
+              <p className="open-error error" role="alert" data-testid="workspace-error">
+                {error}{" "}
+                <span className="muted">Check the path and that the file exists, then try again.</span>
+              </p>
             )}
             {candidates.length > 1 && (
               <div className="candidate-box" aria-labelledby="candidate-title" data-testid="workspace-candidates">

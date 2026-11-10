@@ -314,7 +314,7 @@ export function SettingsDialog({
                   <span data-testid="settings-theme" className="settings-theme-value">Dark</span>,
                 )}
                 <p className="muted" data-testid="settings-theme-note">
-                  Light theme is unavailable in this build: OpenRidr ships one approved dark token set.
+                  Light theme is not available in this build; OpenRidr ships a dark theme only.
                 </p>
                 {field(
                   "zoom",

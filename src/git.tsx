@@ -161,7 +161,7 @@ const TRUST_MESSAGE = "Trust the workspace to use Git";
 function unavailable(status: GitStatus | null, error: string | null): string | null {
   if (error) return error;
   if (!status) return null;
-  if (status.state === "not_a_repository") return "Not a git repository";
+  if (status.state === "not_a_repository") return "Not a git repository. Run git init in the workspace folder to use Git here.";
   if (status.state === "git_missing") return "git was not found on PATH.";
   if (status.state === "failed") return status.message ?? "Git is unavailable.";
   return null;
@@ -1210,7 +1210,9 @@ export function GitLogPanel({
     return (
       <div data-testid="git-log">
         <p className="hint" data-testid="git-log-disabled-reason">
-          {log.message ?? "Git log is unavailable."}
+          {log.state === "not_a_repository"
+            ? "Not a git repository. Run git init in the workspace folder to use Git here."
+            : log.message ?? "Git log is unavailable."}
         </p>
       </div>
     );
