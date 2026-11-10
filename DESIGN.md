@@ -41,14 +41,15 @@ Fonte única: `:root` em `src/styles.css`. **Nenhum componente inventa valor for
 | Superfície elevada | `--raised` | `#2b2d30` | diálogo, popover |
 | Moldura | `--chrome` | `#17181a` | toolbar, rail, status |
 | Texto | `--fg` | `#f5f5f5` | corpo |
-| Texto secundário | `--muted` | `#a3a3a3` | metadado, dica |
+| Texto secundário | `--muted` | `#b3b3b3` | metadado, dica (4,5:1 também sobre hover e linha selecionada) |
 | Texto desabilitado | `--disabled` | `#737373` | controle inativo |
 | Ação | `--accent` | `#548af7` | foco, seleção, ação primária |
 | Ação em hover | `--accent-hover` | `#6d9bf9` | hover da primária |
-| **Sobre ação** | `--on-accent` | **proposto** `#101114` | rótulo sobre `--accent` |
+| **Sobre ação** | `--on-accent` | **hoje** `#101114` | rótulo sobre `--accent` (5,71:1; hover 6,93:1) |
+| **Ação como texto** | `--accent-text` | **hoje** `#8ab2ff` | link, aba ativa, branch atual (6,51:1 sobre painel) |
 | Superfície de hover | `--accent-surface` / `-strong` | branco 4% / 8% | hover de item neutro |
 | Linha | `--line` / `--line-internal` / `--line-input` | branco 8% / 6% / 11% | separadores e borda de campo |
-| Seleção | `--select` | `#1e3358` | linha selecionada sem foco |
+| Seleção | `--select` / `--select-row` / `--select-row-focus` | `#1e3358` / `#43454a` / `#2e436e` | seleção de aba, linha da árvore, linha com foco |
 | Erro / aviso / sucesso / info | `--error` `--warning` `--success` `--info` | `#f87171` `#fbbf24` `#34d399` `#60a5fa` | texto e ícone |
 | Sólidos | `--error-solid` `--warning-solid` `--success-solid` `--info-solid` | `#ef4444` `#f59e0b` `#10b981` `#3b82f6` | preenchimento de selo |
 
@@ -60,13 +61,14 @@ Regras:
   `--success`, stop é `--error`).
 - **Cores de tipo e de git** (`--icon-*`, `--git-*`) são dados, não tema: carregam significado de
   linguagem/estado de arquivo e não se reaproveitam fora desse papel.
-- **Proibido `var(--x, #hex)` para token que não existe.** Hoje há dois: `--danger` e `--border`
-  (`src/styles.css:1843`, `:1856`) — o fallback é sempre o valor efetivo e o contrato mente.
+- **Proibido `var(--x, #hex)` para token que não existe.** Os dois que existiam (`--danger` e
+  `--border`) viraram tokens reais; hex estrutural fora do `:root` é dívida, não estilo.
 
 ### 3.2 Tipografia
 
 | Papel | Token | Valor | Uso |
 |---|---|---|---|
+| Título de página | `--fs-title` | 20 px | setup, estado vazio de tela cheia |
 | UI | `--fs-ui` | 14 px | corpo de texto, editor de texto plano |
 | Rótulo | `--fs-label` | 13 px | título de painel, cabeçalho de seção, código |
 | Metadado | `--fs-meta` | 12 px | linha de árvore, tab, status, item de menu |
@@ -74,8 +76,10 @@ Regras:
 
 - **Famílias:** `--sans` (Inter Variable, embutida) para UI e `--mono` (JetBrains Mono Variable,
   embutida) para código, terminal e números.
-- **Piso:** 11 px. Nada abaixo disso, nem em selo. **Proposto:** eliminar `font: 700 7px/1`
-  (`src/styles.css:3501`) e os dois `10px` (`:2655`, `:3231`).
+- **Piso:** 11 px. Nada abaixo disso, nem em selo. **Hoje:** o selo de símbolo saiu de 7 px, as
+  duas rails de ação de 10 px viraram `--fs-badge`, e o selo `↗` da pasta `config` saiu de 9 px.
+  Ficam abaixo do piso só `<text>` de SVG (arte de ícone) e o tamanho do editor, que é escolha do
+  usuário.
 - **Peso, não tamanho, separa níveis próximos.** Título de painel = 600 no `--fs-label`; não se cria
   um 15 px para "parecer título".
 - **Números tabulares** em status bar, contadores e colunas numéricas (`font-variant-numeric:
@@ -83,7 +87,8 @@ Regras:
 
 ### 3.3 Espaçamento
 
-**Proposto** — hoje não existe escala (25 combinações de `padding` distintas). A escala é 4 px:
+**Hoje** — a escala é 4 px e vive em `:root`. Um valor que cai num passo usa o token; valores densos
+fora da escala (1/2/3/6/10 px) ficam crus de propósito, para migrar a escala não mudar a densidade:
 
 | Token | Valor | Uso |
 |---|---|---|
@@ -102,6 +107,7 @@ Regras:
 | `--r-md` | 6 px | botão de ícone, item de menu, linha de árvore |
 | `--r-lg` | 8 px | botão, campo, ilha de painel |
 | `--r-xl` | 12 px | diálogo, popover, Search Everywhere |
+| `--r-pill` | 999 px | selo arredondado, contador |
 | `--control-h` | 32 px | botão, campo, linha de árvore, alvo de tool band |
 | — | 28 px | item de menu, linha de log (**proposto** virar `--row-h-menu`) |
 | — | 52 px | toolbar superior |
@@ -118,16 +124,17 @@ Regras:
 
 - Anel de **2 px** `--accent` com `outline-offset: 2px` no padrão.
 - Em linha densa (árvore, menu, item de rail) o anel é **inset** (`outline-offset: -2px`) para não
-  ser cortado pelo scroller. **Proposto** para o tool band, que hoje corta
-  ([evidência](docs/design/critique-328/22-focus-toolband.webp)).
+  ser cortado pelo scroller. **Hoje** no tool band: o rail tem 34 px e rola, então o anel global
+  caía fora; inset ele mede 5,38:1 sobre o rail e 4,34:1 sobre o botão ativo
+  ([evidência](docs/evidence/design-focus-333.md)).
 - Foco nunca é só preenchimento: quem usa teclado precisa ver a borda.
 
 ## 4. Regras de componente
 
 ### Botão
 
-- **Primário** (`.primary`): uma por tela, `--accent` de fundo, rótulo `--on-accent` (**proposto**;
-  hoje é branco a 3,30:1).
+- **Primário** (`.primary`): uma por tela, `--accent` de fundo, rótulo `--on-accent` (**hoje**;
+  5,71:1 no default e 6,93:1 no hover).
 - **Secundário**: fundo `--accent-surface`, borda `--line`, texto `--fg`. É o padrão.
 - **Destrutivo** (`.danger`): fundo neutro, texto `--error`. Nunca é o controle mais alto da tela.
 - **Ícone**: 32×32, sem borda, hover por alfa, `aria-label` obrigatório.
@@ -139,16 +146,18 @@ Regras:
 - Foco: borda `--accent` + halo `0 0 0 3px rgba(84,138,247,.24)`.
 - Rótulo sempre presente — visível ou `sr-only`; placeholder não substitui rótulo.
 - Erro fica **ao lado do campo**, em uma linha, com o texto real do host e uma instrução de reparo
-  (**proposto**: hoje o erro de caminho não sugere reparo).
+  (**hoje**: o caminho inválido diz para conferir o caminho e o arquivo).
 
 ### Abas e tool windows
 
 - Cabeçalho inferior mantém `role="tab"` (contrato de teste e de acessibilidade).
 - Aba ativa = fundo do editor, texto `--fg`; inativa = `--muted`; hover = `--accent-surface`.
 - Rail e abas são **o mesmo destino**: o rail é atalho, a aba é o estado. Todo item de rail tem
-  `aria-label` e `title`; **proposto** rótulo curto persistente onde couber.
-- O chrome de cada painel é **uma** linha de comando primário; ações secundárias vão para overflow
-  rotulado (**proposto** — ver P1 de densidade).
+  `aria-label` e `title`. Rótulo persistente não cabe nos 34 px do rail sem alargar a coluna do grid
+  e roubar largura do editor; a alternativa (rótulo sob o ícone) dobraria a altura de um rail que já
+  rola a 760 px. Fica o nome acessível, e o cabeçalho inferior — mesmo destino — carrega o rótulo.
+- O chrome de cada painel é **uma** linha de comando primário; ações secundárias vão para um
+  disclosure rotulado (`panel-disclosure`: **More** em Tests, **Filters** em NuGet).
 
 ### Árvore
 
@@ -164,7 +173,7 @@ Regras:
   tamanho entre páginas; a página rola dentro).
 - Menu/popover: `--raised`, raio `--r-xl`, `--shadow-popover`, item de 28 px com raio `--r-md`.
 - Item desabilitado explica o motivo em `title`/`aria-description`, **não** em parágrafo dentro do
-  menu (**proposto** — ver menu de contexto do editor).
+  menu (**hoje**).
 - Esc fecha; Enter aciona o botão focado; Tab circula dentro do modal.
 
 ### Estado vazio, carregando, erro
@@ -208,19 +217,18 @@ Regras:
 
 ## 7. Dívida conhecida (medida na #328)
 
-| Onde | O quê | Achado |
-|---|---|---|
-| `src/styles.css:224-231` | rótulo branco sobre `--accent` = 3,30:1 (hover 2,72:1) | P1 |
-| `src/styles.css:1843`, `:1856` | `var(--danger, …)`, `var(--border, …)` para tokens inexistentes | P2 |
-| `src/styles.css:1143-1144` | `#f75464`, `#e5b94e` fora do token | P2 |
-| `src/styles.css:3062-3067`, `:3421` | `#43454a`, `#2e436e`, `#a9c7ff` hardcoded | P2 |
-| `src/styles.css:3501` | `font: 700 7px/1` no selo de símbolo | P3 |
-| `src/styles.css:2655`, `:3231` | rótulo de ação a 10 px | P3 |
-| `src/styles.css` | escala de espaçamento inexistente; 21× `3px` e 11× `4px` de raio hardcoded | P3 |
-| `src/shell/ToolWindowBand.tsx` | foco cortado nas laterais do rail | P2 |
-| `src/TrustPrompt.tsx` | "executable inspection" abstrato; permissivo é o botão dominante | P2 |
-| `src/WorkspaceView.tsx`, `src/ProblemsPanel.tsx` | stale/parcial sem ação adjacente | P1 |
-| `src/TestsPanel.tsx`, `src/NuGetPanel.tsx`, `src/BuildPanel.tsx` | chrome consome a altura do painel | P1 |
+| Onde | O quê | Achado | Estado |
+|---|---|---|---|
+| `src/styles.css` | rótulo branco sobre `--accent` = 3,30:1 (hover 2,72:1) | P1 | corrigido (#329) |
+| `src/styles.css` | `var(--danger, …)`, `var(--border, …)` para tokens inexistentes | P2 | corrigido (#334) |
+| `src/styles.css` | `#f75464`, `#e5b94e`, `#43454a`, `#2e436e`, `#a9c7ff` fora do token | P2 | corrigido (#334) |
+| `src/styles.css` | `font: 700 7px/1` no selo, rótulos de ação a 10 px | P3 | corrigido (#335) |
+| `src/styles.css` | escala de espaçamento inexistente; raio hardcoded | P3 | corrigido (#335) |
+| `src/shell/ToolWindowBand.tsx` | foco cortado nas laterais do rail | P2 | corrigido (#333) |
+| `src/WorkspaceView.tsx`, `src/ProblemsPanel.tsx` | stale/parcial sem ação adjacente | P1 | corrigido (#330) |
+| `src/TestsPanel.tsx`, `src/NuGetPanel.tsx`, `src/BuildPanel.tsx` | chrome consome a altura do painel | P1 | corrigido (#331) |
+| `src/TrustPrompt.tsx` | "executable inspection" abstrato; permissivo é o botão dominante | P2 | **aberto (#332, pede decisão do Helder)** |
+| Welcome, editor vazio, Settings, Git, menu | microcopy sem próximo passo | P3 | corrigido (#336) |
 
 ## 8. Governança
 
