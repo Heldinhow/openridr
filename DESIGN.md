@@ -15,7 +15,7 @@ que expressão. A marca vive no detalhe preciso, não em decoração.
 - **Tema:** escuro, único distribuído. Os tokens claros existem em `@supports (color: light-dark())`
   e são **forward-compatible**, não um tema suportado.
 - **Plataforma verificada:** macOS ARM64. Windows e macOS Intel não são suportados sem evidência.
-- **Densidade:** app de trabalho. 32 px é a altura de controle e de linha; 28 px é a de item de menu.
+- **Densidade:** app de trabalho. 32 px é o mínimo de controle e linha; a árvore usa 36 px na densidade confortável e 32 px na compacta. Itens de menu usam 28 px.
 
 ## 2. Princípios
 
@@ -30,7 +30,7 @@ que expressão. A marca vive no detalhe preciso, não em decoração.
 
 ## 3. Tokens
 
-Fonte única: `:root` em `src/styles.css`. **Nenhum componente inventa valor fora daqui.**
+Fonte única: `:root` em `src/styles.css`. **Nenhum componente inventa valor fora daqui.** O workspace tem uma paleta própria nesta primeira fatia; as demais telas mantêm os tokens gerais até a aprovação visual e a expansão da #350.
 
 ### 3.1 Cor
 
@@ -53,10 +53,12 @@ Fonte única: `:root` em `src/styles.css`. **Nenhum componente inventa valor for
 | Erro / aviso / sucesso / info | `--error` `--warning` `--success` `--info` | `#f87171` `#fbbf24` `#34d399` `#60a5fa` | texto e ícone |
 | Sólidos | `--error-solid` `--warning-solid` `--success-solid` `--info-solid` | `#ef4444` `#f59e0b` `#10b981` `#3b82f6` | preenchimento de selo |
 
+A primeira fatia da #349 também define os tokens `--workspace-*` em `:root` e os aplica por alias apenas em `.workspace-view`: fundo `#090909`, painel `#101010`, superfície elevada `#1b1b1b`, chrome `#050505`, seleção `#282828`, linha selecionada `#262626` (com foco `#343434`) e aba ativa `#252525` com borda `#3a3a3a`. Welcome e telas fora do workspace mantêm a paleta geral. Essa diferença é transitória e aguarda a aprovação visual.
+
 Regras:
 
 - **Superfícies sobem por alfa, não por hex novo.** Elevação = branco a 4%/8% sobre a superfície
-  abaixo. Um hex de superfície novo é um bug de sistema.
+  abaixo. Os tokens `--workspace-*` acima são a exceção explícita da primeira fatia; fora deles, um hex de superfície novo é um bug de sistema.
 - **Azul é ação, foco e seleção.** Não é decoração, não é estado de execução (run/debug são
   `--success`, stop é `--error`).
 - **Cores de tipo e de git** (`--icon-*`, `--git-*`) são dados, não tema: carregam significado de
@@ -161,7 +163,7 @@ fora da escala (1/2/3/6/10 px) ficam crus de propósito, para migrar a escala n�
 
 ### Árvore
 
-- Linha de 32 px, recuo 10/28/46 px por nível, seleção por preenchimento (nunca preenchimento +
+- Linha de 36 px na densidade confortável e 32 px na compacta, recuo 10/28/46 px por nível, seleção por preenchimento (nunca preenchimento +
   negrito ao mesmo tempo).
 - Tipo é carregado por glifo tingido, não por chip extra.
 - Cabeçalho e faixa de avaliação ficam fixos; só a árvore rola.

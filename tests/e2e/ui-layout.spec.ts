@@ -157,6 +157,12 @@ test("evaluated project details keep paths intact and Close with the heading", a
   await expect(close.locator("..")).toContainText("OrderDesk.Cli");
   await close.click();
   await expect(details).toBeHidden();
+  await page.getByTestId("workspace-tools-close").click();
+  await expect(page.getByTestId("toolbar-build")).toBeEnabled({ timeout: 60_000 });
+  if (requestedScreenshotsDir) {
+    fs.mkdirSync(requestedScreenshotsDir, { recursive: true });
+    await page.screenshot({ path: path.join(requestedScreenshotsDir, "workspace-trusted-1440x900.png") });
+  }
 });
 
 for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 900 }, { width: 1100, height: 700 }]) {

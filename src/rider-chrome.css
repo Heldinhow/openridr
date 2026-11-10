@@ -1,14 +1,14 @@
 /* A continuous dark workspace: the explorer stays beside both working areas. */
 .workspace-view {
-  --bg: #090909;
-  --panel: #101010;
-  --raised: #1b1b1b;
-  --chrome: #050505;
-  --select: #282828;
-  --select-row: #262626;
-  --select-row-focus: #343434;
-  --tab-active-surface: #252525;
-  --tab-active-border: #3a3a3a;
+  --bg: var(--workspace-bg);
+  --panel: var(--workspace-panel);
+  --raised: var(--workspace-raised);
+  --chrome: var(--workspace-chrome);
+  --select: var(--workspace-select);
+  --select-row: var(--workspace-select-row);
+  --select-row-focus: var(--workspace-select-row-focus);
+  --tab-active-surface: var(--workspace-tab-active-surface);
+  --tab-active-border: var(--workspace-tab-active-border);
   background: var(--chrome);
   gap: 4px;
   padding: 0 4px 4px;
@@ -54,8 +54,8 @@
 }
 
 .workspace-view .sol-tree { padding: 8px 8px; }
-.workspace-view .side .tree-row.sol-row { min-height: 26px; }
-.workspace-view[data-density="compact"] .side .tree-row.sol-row { min-height: 22px; }
+.workspace-view .side .tree-row.sol-row { min-height: 36px; }
+.workspace-view[data-density="compact"] .side .tree-row.sol-row { min-height: var(--control-h); }
 .workspace-view .bottom-tabs { border-bottom: 1px solid var(--line); }
 .workspace-view .output .panel-body { background: var(--panel); }
 

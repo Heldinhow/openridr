@@ -266,7 +266,7 @@ test("the build gate names the automatic discovery before the click", async ({ p
     await page.getByTestId("bottom-tab-build").click();
     await expect(page.getByTestId("build-disabled-reason")).toHaveText(discoveryReason);
     await expect(page.getByTestId("build-action")).toBeDisabled();
-    await expect(page.getByTestId("build-action")).toHaveAttribute("title", discoveryReason);
+    await expect(page.getByTestId("build-action")).toHaveAttribute("title", new RegExp(`^Build startup.* — ${discoveryReason.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
     await expect(page.getByTestId("build-solution")).toBeDisabled();
     await expect(page.getByTestId("build-solution")).toHaveAttribute("title", discoveryReason);
     // Run builds implicitly, so it names the same reason instead of failing on the click.
@@ -325,7 +325,7 @@ test("the build gate names the analysis loading a project workspace", async ({ p
     });
     await expect(page.getByTestId("build-disabled-reason")).toHaveText(analysisReason);
     await expect(page.getByTestId("build-action")).toBeDisabled();
-    await expect(page.getByTestId("build-action")).toHaveAttribute("title", analysisReason);
+    await expect(page.getByTestId("build-action")).toHaveAttribute("title", new RegExp(`^Build startup.* — ${analysisReason.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
     await expect(page.getByTestId("run-action")).toBeDisabled();
 
     // The snapshot re-enables the gate on its own once the analysis loads; the build then runs.
