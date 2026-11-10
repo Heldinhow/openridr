@@ -20,6 +20,15 @@ export type GateSnapshot = {
 // The host refuses the build with the same reason while its own automation builds the project.
 const discoveryReason =
   "Test discovery is building the test project; wait for it to finish or cancel the discovery.";
+
+/**
+ * True when the gate that disabled Build/Run/Debug is the automatic test discovery. The panel that
+ * shows the reason then offers the cancel action next to it: the message must not send the user to
+ * another panel to find the control it names.
+ */
+export function isDiscoveryGateReason(reason: string | null): boolean {
+  return reason === discoveryReason;
+}
 // Only the window that loads the solution blocks; a loaded analysis is alive but not building.
 const analysisReason =
   "Analysis is loading the solution; wait for it to finish or stop analysis.";

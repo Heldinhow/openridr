@@ -1,5 +1,7 @@
 import { Fragment } from "react";
 import type { Build, BuildLogLink, Evaluation, Run } from "./host/client";
+import { isDiscoveryGateReason } from "./executionGates";
+import { effectiveTfm } from "./tfm";
 
 type Props = {
   build: Build;
@@ -17,6 +19,8 @@ type Props = {
   onBuildSolution: () => void;
   solutionBuildDisabledReason: string | null;
   onCancel: () => void;
+  /** The same `tests.cancel` the Tests panel calls; shown next to the discovery gate reason. */
+  onCancelDiscovery: () => void;
   disabledReason: string | null;
   trusted: boolean;
   onTrust: () => void;
@@ -138,6 +142,7 @@ export function BuildPanel({
   onBuildSolution,
   solutionBuildDisabledReason,
   onCancel,
+  onCancelDiscovery,
   disabledReason,
   trusted,
   onTrust,
@@ -155,10 +160,11 @@ export function BuildPanel({
   const configurations = baseConfigurations.includes(evaluation.context.configuration)
     ? baseConfigurations
     : [evaluation.context.configuration, ...baseConfigurations];
+  // One declared TFM is not a decision: the selector names it instead of showing "Not selected".
+  const tfmValue = effectiveTfm(evaluation.context.targetFramework, evaluation.availableTfms);
   const tfmOptions =
-    evaluation.context.targetFramework &&
-    !evaluation.availableTfms.includes(evaluation.context.targetFramework)
-      ? [evaluation.context.targetFramework, ...evaluation.availableTfms]
+    tfmValue && !evaluation.availableTfms.includes(tfmValue)
+      ? [tfmValue, ...evaluation.availableTfms]
       : evaluation.availableTfms;
   const running = build.state === "running";
   const shortcut = shortcuts.run ?? "";
@@ -221,7 +227,7 @@ export function BuildPanel({
           <span>TFM</span>
           <select
             data-testid="build-tfm"
-            value={evaluation.context.targetFramework ?? ""}
+            value={tfmValue ?? ""}
             disabled={running}
             onChange={(event) =>
               onEvaluate({ targetFramework: event.target.value === "" ? null : event.target.value })
@@ -302,6 +308,19 @@ export function BuildPanel({
       {disabledReason && (
         <p className="muted" data-testid="build-disabled-reason">
           {disabledReason}
+          {isDiscoveryGateReason(disabledReason) && (
+            <>
+              {" "}
+              <button
+                type="button"
+                data-testid="build-cancel-discovery"
+                onClick={onCancelDiscovery}
+                title="Requests termination of the test discovery process group; Build is re-evaluated when it ends."
+              >
+                Cancel discovery
+              </button>
+            </>
+          )}
           {!trusted && (
             <>
               {" "}
@@ -320,6 +339,19 @@ export function BuildPanel({
       {runDisabledReason && (
         <p className="muted" data-testid="run-disabled-reason">
           Run unavailable: {runDisabledReason}
+          {isDiscoveryGateReason(runDisabledReason) && (
+            <>
+              {" "}
+              <button
+                type="button"
+                data-testid="run-cancel-discovery"
+                onClick={onCancelDiscovery}
+                title="Requests termination of the test discovery process group; Run is re-evaluated when it ends."
+              >
+                Cancel discovery
+              </button>
+            </>
+          )}
           {!trusted && (
             <>
               {" "}
