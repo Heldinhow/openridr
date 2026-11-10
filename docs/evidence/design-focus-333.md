@@ -25,19 +25,26 @@ Geometria medida (1440 e 1100, mesmos valores):
 - Tab percorre **11 itens** do rail nas duas larguras (`toolband-solution`, `commit`, `build`, `run`,
   `problems`, `debug`, `terminal`, `tests`, `git`, `nuget` e `workspace-tools-toggle`), e todos
   reportam `outline-offset: -2px`, `outline-width: 2px`, `outline-style: solid`,
-  `outline-color: rgb(84, 138, 247)`.
-- Auditoria de nome acessível: **nenhum** botão visível só de ícone sem `aria-label`/`title`, nas
-  duas larguras.
+  `outline-color: rgb(84, 138, 247)`, com o botão inteiro dentro do rail nos quatro lados.
+- Contraste do anel `--accent` sobre o fundo do rail (`--chrome` `#17181a`) = **5,38:1**; sobre o
+  botão ativo (`--accent-surface-strong` sobre o chrome, `#2a2b2d`) = **4,34:1** — acima dos 3:1
+  exigidos para indicador de foco.
+- Auditoria de nome acessível: **nenhum** botão do rail sem `aria-label` (inclusive os desabilitados
+  "M/A/D"), nas duas larguras.
 - `data-testid` do rail preservados (`toolband-*`, `tool-windows`, `tool-windows-right`).
-- `tests/e2e/rail-focus.spec.ts` — **1 passed**: Tab alcança um botão do rail nas duas larguras e o
-  anel mede `outline-offset: -2px`, `outline-width: 2px`, `solid`, com o botão inteiro dentro do
-  rail e nome acessível.
+- `tests/e2e/rail-focus.spec.ts` — **1 passed**: Tab percorre os 11 itens nas duas larguras e, com
+  cada um focado, mede `outline-offset: -2px`, `outline-width: 2px`, `solid`, dentro do rail nos
+  quatro lados, com `aria-label`; ao fim, audita todo botão do rail (inclusive desabilitado) por
+  `aria-label`.
 
 ## Não verificado / decisão
 
-- **Rótulo curto persistente:** não cabe num rail de 34 px sem alargar a coluna do grid e mudar a
-  largura do editor. Os itens mantêm `aria-label` + `title`, e o cabeçalho inferior (mesmo destino)
-  carrega rótulo persistente.
+- **Rótulo curto persistente:** avaliadas as três saídas e descartadas duas. (a) Alargar o rail de
+  34 para ~72 px: muda a coluna do grid (`34px` fixo) e rouba ~38 px do editor em toda tela — o
+  oposto do que o #331 pediu. (b) Rótulo sob o ícone dentro dos 34 px: não cabe ("Solution
+  Explorer" precisa de ~90 px) e dobraria a altura do rail, que já rola a 760 px. (c) Mantida a
+  largura, com `aria-label` + `title` em todo item e o cabeçalho inferior (mesmo destino) com
+  rótulo persistente. É uma decisão de layout, não uma omissão.
 - App Tauri real (macOS) e árvore de acessibilidade do WebKit: fora desta máquina.
 - Os três botões desabilitados "M/A/D" do rail direito continuam como estão: são placeholders de
   recurso inexistente, já com `aria-label` e `title` explicando o motivo.
