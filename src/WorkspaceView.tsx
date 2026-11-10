@@ -4059,6 +4059,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             editedAt={editedAt}
             onNavigate={(path, position) => void navigateTo(path, position)}
             onOpen={(path) => void openUserFile(path)}
+            onRestartAnalysis={() => void startAnalysis()}
+            restartAnalysisReason={trusted ? lspStartBlocker(snapshot) : "Trust the workspace to restart analysis."}
           />
         );
       case "debug":
@@ -4202,6 +4204,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       : evaluationBusy
         ? "Wait for the current evaluation to finish."
         : null,
+    shortReason: !evaluationAvailable ? "Resolve the project SDK first." : null,
     onClick: () => void runEvaluation(),
   };
 
@@ -4685,23 +4688,31 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             </div>
           )}
 
-          {evaluation.staleReason && (
+          {evaluationBusy ? (
+            <div className="notice eval-running" role="status" data-testid="eval-running">
+              Finishing restore and evaluating projects…
+            </div>
+          ) : evaluation.staleReason ? (
             <div className="notice warning eval-stale" role="status" data-testid="eval-stale">
               <strong>Evaluation stale.</strong> {evaluation.staleReason}{" "}
               {hasEarlierEvaluation
                 ? "Values shown are from the previous evaluation and are not current."
-                : "Nothing is current yet; Re-evaluate to produce a current model."}
+                : "Nothing is current yet."}
               <div className="actions">
                 <button
                   data-testid="eval-stale-run"
-                  disabled={!evaluationAvailable || evaluationBusy}
+                  disabled={evaluationRun.disabledReason !== null}
+                  title={evaluationRun.disabledReason ?? undefined}
                   onClick={() => void runEvaluation()}
                 >
                   Re-evaluate
                 </button>
+                {evaluationRun.disabledReason && (
+                  <span className="muted" data-testid="eval-stale-blocked">{evaluationRun.disabledReason}</span>
+                )}
               </div>
             </div>
-          )}
+          ) : null}
 
           <SolutionTree
             workspaceName={workspace.name}
@@ -5221,9 +5232,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               <p className="muted">Open a file from the solution explorer to start editing.</p>
               <dl className="shortcut-list">
                 <dt>Search Everywhere</dt><dd><kbd>{searchAction.shortcutLabels[0] ?? ""}</kbd> <span className="muted">or Double Shift</span></dd>
-                <dt>Save file</dt><dd><kbd>{actionById.get("file.save")?.shortcutLabels[0]}</kbd></dd>
-                <dt>Go to definition</dt><dd><kbd>{actionById.get("code.goToDeclaration")?.shortcutLabels[0]}</kbd></dd>
-                <dt>Rename symbol</dt><dd><kbd>{actionById.get("code.rename")?.shortcutLabels[0]}</kbd></dd>
                 <dt>Run saved build</dt><dd><kbd>{actionById.get("run.start")?.shortcutLabels[0]}</kbd></dd>
               </dl>
               <p className="hint">Text editing is always available. Analysis and execution require trust.</p>
@@ -5444,6 +5452,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           onCheckAgain: () => void redetectSdks(),
         }}
         evaluation={{ ...evaluationStatus, reevaluate: evaluationRun }}
+        evaluationBusy={evaluationBusy}
         partial={partialWorkspace}
         restore={{
           state: restore.state,

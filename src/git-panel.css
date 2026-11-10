@@ -3,8 +3,8 @@
 .commit-toolbar button, .commit-group button { display: inline-flex; align-items: center; justify-content: center; width: 27px; height: 27px; padding: 0; border: 0; background: transparent; box-shadow: none; color: var(--fg); }
 .commit-toolbar button:disabled { opacity: .4; }
 .commit-selection-count { margin-left: auto; color: var(--muted); font-size: var(--fs-meta); }
-.commit-group { display: flex; align-items: center; gap: 6px; margin: 2px 6px; padding: 1px 5px; background: #304a77; border-radius: 4px; }
-.commit-group span { color: #b8c5da; }
+.commit-group { display: flex; align-items: center; gap: 6px; margin: 2px 6px; padding: 1px 5px; background: var(--commit-group-surface); border-radius: var(--r-sm); }
+.commit-group span { color: var(--commit-group-text); }
 .commit-tool .commit-files { display: block; flex: 1 1 auto; overflow: auto; min-height: 60px; }
 .commit-row { min-height: 27px; padding-left: 23px; }
 .commit-row .commit-file { gap: 6px; }
@@ -46,7 +46,7 @@
 .git-diff-editors .git-diff-line-empty { background: #27292e; }
 .git-diff-editors .git-diff-intraline { background: #5377ac; }
 
-.git-diff-toolbar .git-diff-mode { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.git-diff-toolbar .git-diff-mode { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; }
 .git-diff-toolbar .git-diff-mode button { width: auto; height: 22px; padding: 0 8px; border-radius: 0; color: var(--muted); font-size: var(--fs-meta); }
 .git-diff-toolbar .git-diff-mode button + button { border-left: 1px solid var(--line); }
 .git-diff-toolbar .git-diff-mode button[aria-pressed="true"] { background: var(--raised); color: var(--fg); }

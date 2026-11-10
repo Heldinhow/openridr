@@ -11,7 +11,7 @@ type EvaluationStatus = {
   /** Failed/partial evaluations keep the old red cue in the status bar. */
   tone?: "error";
   /** The single action that produces a current model; null hides the affordance. */
-  reevaluate: { label: string; disabledReason: string | null; onClick: () => void } | null;
+  reevaluate: { label: string; disabledReason: string | null; shortReason?: string | null; onClick: () => void } | null;
 };
 
 type RestoreStatus = {
@@ -21,7 +21,7 @@ type RestoreStatus = {
   onRetry: (() => void) | null;
 };
 
-export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, sdk, evaluation, partial, restore, dirtyCount, diagnostics, analysis, breadcrumb, cursor, indent, keymapProfile }: {
+export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, sdk, evaluation, partial, restore, dirtyCount, diagnostics, analysis, breadcrumb, cursor, indent, keymapProfile, evaluationBusy = false }: {
   workspace: { name: string; path: string };
   snapshot: Snapshot;
   onSnapshot: (snapshot: Snapshot) => void;
@@ -36,6 +36,8 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, sdk, ev
   diagnostics: { errors: number; warnings: number; onOpen: () => void };
   /** Analysis (csharp-ls) state with the one action that moves it forward; null in Restricted mode. */
   analysis: { text: string; action: { label: string; disabledReason: string | null; onClick: () => void } | null } | null;
+  /** True while restore/evaluation runs: the bar says one thing and hides the rest. */
+  evaluationBusy?: boolean;
   breadcrumb: string;
   cursor: string;
   indent: { label: string; title: string };
@@ -82,6 +84,11 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, sdk, ev
           <Icon name="refresh" />
         </button>
       )}
+      {!evaluationBusy && evaluation.reevaluate?.disabledReason && (
+        <span className="status-reason" data-testid="eval-blocked-reason">
+          {evaluation.reevaluate.shortReason ?? evaluation.reevaluate.disabledReason}
+        </span>
+      )}
       {evaluation.testId ? (
         <span
           data-testid={evaluation.testId}
@@ -99,12 +106,12 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, sdk, ev
       ) : (
         <span>{evaluation.text}</span>
       )}
-      {partial && (
+      {!evaluationBusy && partial && (
         <span className="status-partial" data-testid="tree-partial" title={partial.title}>
           {partial.text}
         </span>
       )}
-      {analysis && (
+      {!evaluationBusy && analysis && (
         <span data-testid="status-analysis">
           {analysis.text}
           {analysis.action && (
@@ -120,6 +127,11 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, sdk, ev
               >
                 {analysis.action.label}
               </button>
+              {analysis.action.disabledReason && (
+                <span className="status-reason" data-testid="status-analysis-blocked">
+                  {analysis.action.disabledReason}
+                </span>
+              )}
             </>
           )}
         </span>
