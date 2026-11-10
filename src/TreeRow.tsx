@@ -105,21 +105,11 @@ export function TreeRow({
       <span className="tree-icon">
         {symlink && !icon ? (
           // A link with no glyph of its own is drawn as the link: one chain per row.
-          <Icon name="link" className="tint-folder" />
+          <Icon name="link" className="tint-muted" />
         ) : !icon && open !== undefined ? (
           <span className="solution-folder-icon" aria-hidden="true">
             <FolderIcon open={open} />
-            {name.toLowerCase() === "config" && <span className="folder-config-badge">↗</span>}
           </span>
-        ) : testId?.startsWith("tree-deps-") && !testId.startsWith("tree-deps-group-") ? (
-          <svg className="dependency-glyph" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M7 5.5 3.6 10M9 5.5l3.4 4.5" stroke="currentColor" strokeWidth="1.3" />
-            <circle cx="8" cy="3.5" r="2" stroke="currentColor" strokeWidth="1.3" />
-            <circle cx="3" cy="12" r="2" stroke="currentColor" strokeWidth="1.3" />
-            <circle cx="13" cy="12" r="2" stroke="currentColor" strokeWidth="1.3" />
-          </svg>
-        ) : testId?.startsWith("tree-framework-") || (testId?.startsWith("tree-deps-group-") && testId.endsWith("-frameworks")) ? (
-          <Icon name="settings" className="framework-glyph" />
         ) : icon}
         {symlink && icon && (
           <span className="symlink-mark" aria-hidden="true">

@@ -152,13 +152,18 @@ test("folders have a filled glyph with open and closed states, and an indent gui
   await shot(page, "depois-pastas-e-guia");
 });
 
-test("the two-tone document body keeps WCAG 1.4.11 contrast on every row background", async ({ page }) => {
+test("every file glyph clears WCAG 1.4.11 contrast on the row surfaces", async ({ page }) => {
   await open(page, tempCopy());
   await page.getByTestId("tree-show-all").click();
-  const row = page.getByTestId("tree-file-OrderDesk.sln.DotSettings.user");
-  await expect(row).toBeVisible();
-  // Everything comes from the shipped CSS: the glyph token, the body opacity and the row backgrounds.
-  const ratios = await row.evaluate((el) => {
+  const rows = [
+    "tree-file-src/OrderDesk.Core/Order.cs",
+    "tree-file-appsettings.json",
+    "tree-file-README.md",
+    "tree-file-.gitignore",
+    "tree-file-OrderDesk.sln.DotSettings.user",
+  ];
+  // Everything comes from the shipped CSS: the glyph's computed colour and the row surfaces.
+  const measured = await page.evaluate((ids) => {
     // Tokens are `#rrggbb`; a computed color is `rgb(r, g, b)`.
     const toRgb = (value: string) =>
       value.trim().startsWith("#")
@@ -176,25 +181,47 @@ test("the two-tone document body keeps WCAG 1.4.11 contrast on every row backgro
     };
     const root = getComputedStyle(document.documentElement);
     const token = (name: string) => toRgb(root.getPropertyValue(name));
-    const opacity = Number(getComputedStyle(el.querySelector(".glyph-page")!).opacity);
-    const fill = toRgb(getComputedStyle(el.querySelector(".file-icon")!).color);
-    const over = (background: number[]) =>
-      contrast(
-        [0, 1, 2].map((i) => opacity * fill[i] + (1 - opacity) * background[i]),
-        background,
-      );
-    return {
-      opacity,
-      panel: over(token("--panel")),
-      raised: over(token("--raised")),
-      select: over(token("--select")),
+    const surfaces: Record<string, number[]> = {
+      panel: token("--panel"),
+      raised: token("--raised"),
+      select: token("--select"),
+      focus: token("--select-row-focus"),
     };
-  });
-  expect(ratios.opacity).toBeGreaterThan(0.5);
-  expect(ratios.panel).toBeGreaterThanOrEqual(3);
-  expect(ratios.raised).toBeGreaterThanOrEqual(3);
-  expect(ratios.select).toBeGreaterThanOrEqual(3);
+    return ids.map((id) => {
+      const icon = document.querySelector(`[data-testid="${id}"] [data-icon]`);
+      if (!icon) return { id, ratios: null };
+      const colour = toRgb(getComputedStyle(icon).color);
+      const ratios: Record<string, number> = {};
+      for (const [name, background] of Object.entries(surfaces)) {
+        ratios[name] = contrast(colour, background);
+      }
+      return { id, ratios };
+    });
+  }, rows);
+  for (const row of measured) {
+    expect(row.ratios, `${row.id} has a glyph`).not.toBeNull();
+    for (const [surface, ratio] of Object.entries(row.ratios!)) {
+      expect(ratio, `${row.id} on ${surface}`).toBeGreaterThanOrEqual(3);
+    }
+  }
   await shot(page, "depois-contraste");
+});
+
+test("the panel header has no chevron without a handler", async ({ page }) => {
+  await open(page, tempCopy());
+  // The title is text; the panel is toggled from its toolbar button, which has a handler.
+  await expect(page.locator(".explorer-title .icon")).toHaveCount(0);
+  await expect(page.getByTestId("tree-minimize")).toHaveCount(1);
+});
+
+test("Dependencies and Frameworks draw their own glyphs, not a gear", async ({ page }) => {
+  await open(page, tempCopy());
+  await expect(page.getByTestId("tree-deps-OrderDesk.Core").locator(".dependency-glyph")).toHaveCount(1);
+  await expect(page.getByTestId("tree-deps-group-OrderDesk.Core-frameworks").locator(".runtime-glyph")).toHaveCount(1);
+  const framework = page.getByTestId("tree-framework-OrderDesk.Core-Microsoft.NETCore.App (net8.0)");
+  await expect(framework.locator(".runtime-glyph")).toHaveCount(1);
+  // The caller's icon is what the row draws: TreeRow no longer substitutes a settings gear.
+  await expect(framework.locator(".icon-settings")).toHaveCount(0);
 });
 
 test("the current row has a rounded selection fill", async ({ page }) => {

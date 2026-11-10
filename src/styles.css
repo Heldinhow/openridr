@@ -148,23 +148,13 @@
   --icon-seti-purple: #a074c4;
   --icon-seti-green: #8dc149;
   --icon-seti-orange: #e37933;
-  --icon-git: #41535b;
-  --icon-solution: #7aa7ff;
-  --icon-solution-folder: #9db4dd;
-  --icon-folder: #9a9a9a;
+  /* The Seti `_git` colour is #41535b, which measures 1.55:1 on the focused row; it is raised to
+     the closest slate that clears 3:1 there (3.27:1) and keeps the reference's hue. */
+  --icon-git: #708691;
   --icon-project-console: #7cc0ff;
   --icon-project-library: #8ed39a;
   --icon-project-test: #e0b76e;
   --icon-project-web: #7fd3e8;
-  --icon-project-unknown: #9a9a9a;
-  --icon-dependencies: #c0a8f0;
-  --icon-package: #e0b24a;
-  --icon-framework: #9db4dd;
-  --icon-symbol-class: #6f9dff;
-  --icon-symbol-interface: #5fc9a8;
-  --icon-symbol-enum: #e5b64b;
-  --icon-symbol-record: #c58af2;
-  --icon-symbol-struct: #ee9292;
   /* Git status of a tree file row. Brighter than Rider's palette on purpose: the name keeps
      4.5:1 or better over panel, hover, the selected/focused row and the no-index row in the
      shipped dark theme (measurements in docs/evidence/solution-git-status.md). */
@@ -183,23 +173,11 @@
     --icon-seti-purple: light-dark(#9068b0, #a074c4);
     --icon-seti-green: light-dark(#7fae42, #8dc149);
     --icon-seti-orange: light-dark(#cc6d2e, #e37933);
-    --icon-git: light-dark(#3b4b52, #41535b);
-    --icon-solution: light-dark(#1f4f9e, #7aa7ff);
-    --icon-solution-folder: light-dark(#3d5680, #9db4dd);
-    --icon-folder: light-dark(#5f6368, #9a9a9a);
+    --icon-git: light-dark(#4b5f68, #708691);
     --icon-project-console: light-dark(#12558c, #7cc0ff);
     --icon-project-library: light-dark(#20663a, #8ed39a);
     --icon-project-test: light-dark(#7a4f00, #e0b76e);
     --icon-project-web: light-dark(#0f5e70, #7fd3e8);
-    --icon-project-unknown: light-dark(#5f6368, #9a9a9a);
-    --icon-dependencies: light-dark(#5b3a9e, #c0a8f0);
-    --icon-package: light-dark(#7a5200, #e0b24a);
-    --icon-framework: light-dark(#3d5680, #9db4dd);
-    --icon-symbol-class: light-dark(#1f4f9e, #6f9dff);
-    --icon-symbol-interface: light-dark(#186a52, #5fc9a8);
-    --icon-symbol-enum: light-dark(#7a5200, #e5b64b);
-    --icon-symbol-record: light-dark(#63338f, #c58af2);
-    --icon-symbol-struct: light-dark(#8f2f2f, #ee9292);
     --git-modified: light-dark(#1f5f9e, #82c0f0);
     --git-added: light-dark(#2f6f24, #8ad07d);
     --git-untracked: light-dark(#8a4a12, #eda773);
@@ -3493,8 +3471,6 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .sol-row .tag.error { color: var(--error); }
 .sol-row .tag.warning { color: var(--warning); }
 .sol-row .tree-name { flex: 0 0 auto; min-width: 0; }
-.sol-row.no-index { background: color-mix(in srgb, var(--warning) 9%, transparent); }
-.sol-row.no-index:hover { background: color-mix(in srgb, var(--warning) 16%, transparent); }
 .explorer-tools button.active { background: var(--accent-surface-strong); color: var(--fg); }
 .tree-filter { margin: 6px 10px 2px; padding: var(--sp-1) var(--sp-2); min-height: 28px; }
 .explorer-heading { flex-wrap: nowrap; }
@@ -3516,7 +3492,7 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
   font-style: normal;
   display: block;
 }
-.folder-glyph { width: 16px; height: 16px; display: block; }
+.folder-glyph, .runtime-glyph { width: 16px; height: 16px; display: block; }
 /* Type colour is one of the Seti families; no component carries a hex. */
 :is(.sol-row .tree-icon, .tabbar .tab-label) .tint-seti-blue { color: var(--icon-seti-blue); }
 :is(.sol-row .tree-icon, .tabbar .tab-label) .tint-seti-yellow { color: var(--icon-seti-yellow); }
@@ -3525,41 +3501,11 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 :is(.sol-row .tree-icon, .tabbar .tab-label) .tint-seti-orange { color: var(--icon-seti-orange); }
 :is(.sol-row .tree-icon, .tabbar .tab-label) .tint-git { color: var(--icon-git); }
 :is(.sol-row .tree-icon, .tabbar .tab-label) .tint-muted { color: var(--muted); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-solution { color: var(--icon-solution); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-solution-folder { color: var(--icon-solution-folder); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-folder { color: var(--icon-folder); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-dependencies { color: var(--icon-dependencies); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-package { color: var(--icon-package); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-framework { color: var(--icon-framework); }
 .sol-row .tree-icon .project-icon.project-console { color: var(--icon-project-console); }
 .sol-row .tree-icon .project-icon.project-library { color: var(--icon-project-library); }
 .sol-row .tree-icon .project-icon.project-test { color: var(--icon-project-test); }
 .sol-row .tree-icon .project-icon.project-web { color: var(--icon-project-web); }
-.sol-row .tree-icon .project-icon.project-unknown { color: var(--icon-project-unknown); }
-
-/* Symbol kind of a `.cs` file: a 9px corner sticker on the C# hexagon (D2). */
-.symbol-mark {
-  position: absolute;
-  right: -3px;
-  bottom: -3px;
-  width: 12px;
-  height: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--r-sm);
-  box-shadow: 0 0 0 1px var(--panel);
-  font-family: var(--mono);
-  font-size: var(--fs-badge);
-  font-weight: 700;
-  line-height: 1;
-  color: var(--on-icon);
-}
-.symbol-mark.symbol-class { background: var(--icon-symbol-class); }
-.symbol-mark.symbol-interface { background: var(--icon-symbol-interface); }
-.symbol-mark.symbol-enum { background: var(--icon-symbol-enum); }
-.symbol-mark.symbol-record { background: var(--icon-symbol-record); }
-.symbol-mark.symbol-struct { background: var(--icon-symbol-struct); }
+.sol-row .tree-icon .project-icon.project-unknown { color: var(--muted); }
 
 /* Symlink: a chain sticker on the glyph corner. The row description says "not followed", so the
    marker is not the only channel; a symlinked folder loses its chevron and never expands. */
@@ -3574,14 +3520,13 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
   align-items: center;
   justify-content: center;
   border-radius: var(--r-sm);
-  background: var(--icon-folder);
+  background: var(--muted);
   color: var(--on-icon);
   box-shadow: 0 0 0 1px var(--panel);
 }
 .symlink-mark .icon { width: 7px; height: 7px; }
 
 .sol-row.no-index .tree-name { color: var(--muted); }
-.sol-row.no-index .tree-icon { opacity: 0.6; }
 
 /* Git status: the tag word is the non-colour channel; the name tint reinforces it. The `no index`
    background stays, and the selected/focused row keeps the tint (measured on those surfaces). */

@@ -142,11 +142,10 @@ They are the only file glyphs the Seti theme has no drawing for: `.sln` and `.re
 `.editorconfig` and `.DotSettings` use `TextGlyph`.
 
 **Modified.** The two glyphs are **not** verbatim: the `<symbol>`/sprite wrapper is dropped, the
-package's `class="bg"` / `class="fg"` hits became one local class (`glyph-page`) on the page body,
-the original inline `opacity` attributes were dropped (the body is drawn at full strength, like the
-Seti glyphs, so one contrast rule covers every row), the hardcoded colors became `currentColor` so
-the row's `tint-*` class supplies the token, and the file names/JSX differ. The path data is
-unchanged. `@pierre/trees` is **not** a dependency of OpenRidr; only these two symbols are vendored.
+package's `class="bg"` / `class="fg"` hits became one `currentColor` fill (the original inline
+`opacity` attributes are gone, so the body is drawn at full strength like the Seti glyphs and one
+contrast rule covers every row), and the file names/JSX differ. The path data is unchanged.
+`@pierre/trees` is **not** a dependency of OpenRidr; only these two symbols are vendored.
 
 ### NOTICE of `@pierre/trees` 1.0.0-beta.6
 

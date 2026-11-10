@@ -3,7 +3,9 @@ import { FileIcon } from "./FileIcon";
 import type { GitStatus } from "./git";
 import { call, type EvaluatedPackageRef, type EvaluationProject, type OutlineProject } from "./host/client";
 import { Icon } from "./Icon";
+import { DependencyGlyph } from "./icons/DependencyGlyph";
 import { ProjectIcon } from "./icons/ProjectIcon";
+import { RuntimeGlyph } from "./icons/RuntimeGlyph";
 import { SYMBOL_LABEL } from "./icons/SymbolMark";
 import { createListingCache, type ListingEntry } from "./solutionListing";
 import { treeGitStatusMap, mergeIgnored, treeQueryId, type TreeGitStatus } from "./solutionGitStatus";
@@ -614,7 +616,7 @@ export function SolutionTree(p: Props) {
                 <TreeRow
                   level={level + 1}
                   open={p.expanded.has(depsKey(view.path))}
-                  icon={<Icon name="dependencies" className="tint-dependencies" />}
+                  icon={<DependencyGlyph />}
                   name="Dependencies"
                   testId={`tree-deps-${view.name}`}
                   onClick={() => p.onToggle(depsKey(view.path))}
@@ -625,12 +627,12 @@ export function SolutionTree(p: Props) {
                     {groupRow(
                       "frameworks",
                       "Frameworks",
-                      <Icon name="layers" className="tint-framework" />,
+                      <RuntimeGlyph />,
                       frameworks.map((framework) => (
                         <TreeRow
                           key={`fw:${framework}`}
                           level={level + 3}
-                          icon={<Icon name="layers" className="tint-framework" />}
+                          icon={<RuntimeGlyph />}
                           name={framework}
                           testId={`tree-framework-${view.name}-${framework}`}
                           onClick={() => undefined}
@@ -641,12 +643,12 @@ export function SolutionTree(p: Props) {
                     {groupRow(
                       "packages",
                       "Packages",
-                      <Icon name="package" className="tint-package" />,
+                      <Icon name="package" />,
                       view.packages.map((pkg) => (
                         <TreeRow
                           key={`pkg:${packageKey(pkg)}`}
                           level={level + 3}
-                          icon={<Icon name="package" className="tint-package" />}
+                          icon={<Icon name="package" />}
                           name={pkg.name}
                           testId={`tree-package-${view.name}-${pkg.name}`}
                           suffix={
@@ -662,7 +664,7 @@ export function SolutionTree(p: Props) {
                     {groupRow(
                       "projects",
                       "Projects",
-                      <Icon name="solutionFolder" className="tint-solution-folder" />,
+                      <Icon name="solutionFolder" />,
                       view.refs.map((ref) => {
                         const target = views.find((candidate) => candidate.name === ref);
                         const refKind: ProjectKind = target
@@ -706,7 +708,7 @@ export function SolutionTree(p: Props) {
       <TreeRow
         level={0}
         open={rootOpen}
-        icon={<Icon name="solution" className="tint-solution" />}
+        icon={<Icon name="solution" />}
         name={p.workspaceName.replace(/\.(slnx?|csproj)$/i, "")}
         testId="tree-root"
         suffix={<span className="tag tree-count">· {countLabel(views.length, "project")}</span>}

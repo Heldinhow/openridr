@@ -27,11 +27,11 @@ function Svg({ className, children }: GlyphProps & { children: ReactNode }) {
   );
 }
 
-/** Generic document: page with a folded corner (`.glyph-page` is the page body). */
+/** Generic document: page with a folded corner, one solid fill like the Seti glyphs. */
 export function DocGlyph(props: GlyphProps) {
   return (
     <Svg {...props}>
-      <path className="glyph-page" d="M8 1v3a3 3 0 0 0 3 3h3v5.5a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 2 12.5v-9A2.5 2.5 0 0 1 4.5 1z" />
+      <path d="M8 1v3a3 3 0 0 0 3 3h3v5.5a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 2 12.5v-9A2.5 2.5 0 0 1 4.5 1z" />
       <path d="M9.5 1a.5.5 0 0 1 .354.146l4 4A.5.5 0 0 1 14 5.5V6h-3a2 2 0 0 1-2-2V1z" />
     </Svg>
   );
@@ -41,7 +41,7 @@ export function DocGlyph(props: GlyphProps) {
 export function TextGlyph(props: GlyphProps) {
   return (
     <Svg {...props}>
-      <path className="glyph-page" fillRule="evenodd" clipRule="evenodd" d="M8 4a3 3 0 0 0 3 3h3v5.5a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 2 12.5v-9A2.5 2.5 0 0 1 4.5 1H8z" />
+      <path fillRule="evenodd" clipRule="evenodd" d="M8 4a3 3 0 0 0 3 3h3v5.5a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 2 12.5v-9A2.5 2.5 0 0 1 4.5 1H8z" />
       <path d="M8.5 11a.5.5 0 0 1 0 1h-3a.5.5 0 0 1 0-1zm2-2a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1zm-1-8a.5.5 0 0 1 .354.146l4 4A.5.5 0 0 1 14 5.5V6h-3a2 2 0 0 1-2-2V1z" />
     </Svg>
   );
