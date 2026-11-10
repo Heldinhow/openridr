@@ -3225,7 +3225,6 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .build-panel[data-testid="tests-panel"] > .build-controls .tag { font-size: var(--fs-meta); }
 .build-panel[data-testid="tests-panel"] { flex-direction: row; flex-wrap: wrap; align-items: center; align-content: flex-start; gap: var(--sp-1) var(--sp-3); }
 .build-panel[data-testid="tests-panel"] > * { flex: 1 1 100%; }
-.build-panel[data-testid="tests-panel"] > [data-testid="tests-counts"] { flex: 0 0 auto; margin: 0 0 0 10px; padding: 0; }
 .tests-tabs { display: flex; align-items: center; gap: 2px; padding: 0 var(--sp-2); border-bottom: 1px solid var(--line); }
 .tests-tabs .tab-label { min-height: var(--control-h); padding: 0 10px; border-radius: var(--r-md) var(--r-md) 0 0; color: var(--muted); background: transparent; }
 .tests-tabs .tab-label.active { color: var(--fg); background: var(--raised); }
@@ -3243,8 +3242,6 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
    absolutely positioned over the content below it, and a closed one used to intercept clicks
    meant for the panel (#372). */
 .panel-disclosure:not([open]) > .panel-disclosure-body { display: none; }
-/* The Tests disclosure holds the counters, the filter and the secondary actions in two rows;
-   the popover wraps instead of running off the panel (#372). */
 /* The primary row sits right above the tab strip: a floating popover would cover the tabs and the
    first rows of the list while it is open, so this disclosure expands inline and gives the space
    back when it closes (#372). */

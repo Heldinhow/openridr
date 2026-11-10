@@ -1047,7 +1047,7 @@ export function TestsPanel({
       </div>
 
       <div className="tests-body">
-        <nav className="tests-actions" aria-label="Test actions">
+        <nav className="tests-actions" aria-label="Test run actions">
           <button
             data-testid="tests-run-selected"
             disabled={runBlocked !== null || selected.size === 0}

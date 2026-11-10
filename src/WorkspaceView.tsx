@@ -4222,6 +4222,11 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         setMessage({ tone: "error", text: `No solution or project contains ${path}.` });
         return;
       }
+      if (answer.path === workspace.path) {
+        // Inside the open workspace and still refused: the file is not one the editor can show.
+        setMessage({ tone: "error", text: `${path} is inside the open workspace but is not a text file the editor can show.` });
+        return;
+      }
       await openSolution(answer.path);
     } catch (error) {
       setMessage({ tone: "error", text: `Could not find the solution for ${path}: ${messageOf(error)}` });
