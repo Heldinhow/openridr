@@ -163,8 +163,8 @@ function unavailable(status: GitStatus | null, error: string | null): string | n
   if (error) return error;
   if (!status) return null;
   if (status.state === "not_a_repository") return NOT_A_REPOSITORY;
-  if (status.state === "git_missing") return "git was not found on PATH.";
-  if (status.state === "failed") return status.message ?? "Git is unavailable.";
+  if (status.state === "git_missing") return "git was not found on PATH. Install Git and reopen this panel.";
+  if (status.state === "failed") return `${status.message ?? "Git is unavailable."} Check the workspace path and run git status in a terminal.`;
   return null;
 }
 
@@ -1211,7 +1211,12 @@ export function GitLogPanel({
     return (
       <div data-testid="git-log">
         <p className="hint" data-testid="git-log-disabled-reason">
-          {log.state === "not_a_repository" ? NOT_A_REPOSITORY : log.message ?? "Git log is unavailable."}
+          {log.message
+            ? log.message.endsWith(".")
+              ? log.message
+              : `${log.message}.`
+            : "Git log is unavailable."}
+          {log.state === "not_a_repository" && " Run git init in the workspace folder to use Git here."}
         </p>
       </div>
     );
