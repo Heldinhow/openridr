@@ -15,7 +15,7 @@ que expressão. A marca vive no detalhe preciso, não em decoração.
 - **Tema:** escuro, único distribuído. Os tokens claros existem em `@supports (color: light-dark())`
   e são **forward-compatible**, não um tema suportado.
 - **Plataforma verificada:** macOS ARM64. Windows e macOS Intel não são suportados sem evidência.
-- **Densidade:** app de trabalho. 32 px é o mínimo de controle e linha; a árvore usa 36 px na densidade confortável e 32 px na compacta. Itens de menu usam 28 px.
+- **Densidade:** app de trabalho. 32 px é o mínimo de alvo para um controle; a árvore é a exceção declarada e usa **22 px por linha** com ícone de 16 px, a densidade do VS Code e do Rider. Itens de menu usam 28 px.
 
 ## 2. Princípios
 
@@ -110,7 +110,7 @@ fora da escala (1/2/3/6/10 px) ficam crus de propósito, para migrar a escala n�
 | `--r-lg` | 8 px | botão, campo, ilha de painel |
 | `--r-xl` | 12 px | diálogo, popover, Search Everywhere |
 | `--r-pill` | 999 px | selo arredondado, contador |
-| `--control-h` | 32 px | botão, campo, linha de árvore, alvo de tool band |
+| `--control-h` | 32 px | botão, campo, alvo de tool band (a linha da árvore é exceção: 22 px) |
 | — | 28 px | item de menu, linha de log (**proposto** virar `--row-h-menu`) |
 | — | 52 px | toolbar superior |
 | — | 28 px | status bar |
@@ -163,8 +163,7 @@ fora da escala (1/2/3/6/10 px) ficam crus de propósito, para migrar a escala n�
 
 ### Árvore
 
-- Linha de 36 px na densidade confortável e 32 px na compacta, recuo 10/28/46 px por nível, seleção por preenchimento (nunca preenchimento +
-  negrito ao mesmo tempo).
+- Linha de 22 px com ícone de 16 px, recuo de 18 px por nível, seleção por preenchimento (nunca preenchimento + negrito ao mesmo tempo).
 - Tipo é carregado por glifo tingido, não por chip extra.
 - Cabeçalho e faixa de avaliação ficam fixos; só a árvore rola.
 - Metadado de projeto em segunda camada (nome em cima; `kind · TFM · restore` embaixo).
@@ -200,7 +199,7 @@ fora da escala (1/2/3/6/10 px) ficam crus de propósito, para migrar a escala n�
 - **Contraste:** 4,5:1 para texto normal; 3:1 para texto grande (≥ 18,66 px ou ≥ 14 px em negrito) e
   para limites de componente/indicador de foco. Medir sobre a superfície **composta** (alfa incluso),
   não sobre o token cru.
-- **Alvo:** 32×32 px para qualquer controle; exceção só para linha densa, que já tem 32 px de altura.
+- **Alvo:** 32×32 px para qualquer controle; a linha da árvore é a exceção declarada, com 22 px de altura e 16 px de ícone.
 - **Teclado:** todo controle alcançável, ordem de Tab igual à ordem visual, foco sempre visível.
 - **Nome acessível:** todo controle só de ícone tem `aria-label`; imagem decorativa tem `alt=""`.
 - **Sem cor sozinha:** estado tem texto ou forma além da cor.

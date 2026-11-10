@@ -2104,3 +2104,22 @@ A paleta aprovada no workspace (#349) deixa de ser escopada e vira o `:root` do 
 - **Por que o piso.** Ícone é gráfico não textual (WCAG 1.4.11), e o repo já trata isso como teste, não como tabela em doc: o piso vale sobre `--panel`, hover, `--raised`, a linha `--select` focada e o âmbar de `no index`. Uma cor de referência que reprova ali é ajustada, não aceita.
 - **Onde a cor mora.** Nenhum componente ganha hex: a tabela nomeia o token, `src/styles.css` guarda o valor, e o teste de contraste lê os dois. É a regra que o `DESIGN.md` já declara ("cores de tipo são dados, não tema").
 - **Pendência declarada.** "Paleta da referência = Seti" depende da aprovação de dependência; a política (piso medido, token único, teste lendo a tabela) vale para qualquer origem de glifo.
+
+## 2026-11-10 — Ícones da Solution Explorer: uma família só (Seti, MIT) e paleta com teto
+
+- **A decisão.** Os glifos de arquivo passam a vir de **uma** família: a fonte `seti.woff` do tema Seti do VS Code (37 KB, 383 glifos), vendorizada junto de uma tabela derivada com os ~40 tipos que interessam. Licença **MIT** (`jesseweed/seti-ui`; o VS Code também é MIT), com atribuição em `THIRD-PARTY-NOTICES.md`. É asset de terceiro — `risk:high` —, aprovado pelo Helder em 2026-11-10 pelo canal do router. Os glifos preenchidos do `@pierre/trees` (Apache-2.0) ficam só onde o Seti não tem glifo (`.sln`, `.resx`, `.editorconfig`, `.DotSettings`); os ícones de traço do Lucide saem das linhas de arquivo.
+- **Por que.** A crítica de 2026-11-10 (`.impeccable/critique/2026-11-10T13-30-42Z__src-solutiontree-tsx.md`) mediu **23 desenhos de três famílias** (preenchido, traço Lucide, logo C#) e **29 tokens `--icon-*`** entre 4,4:1 e 11,2:1 no mesmo painel, com traço de 1,5 px ao lado de massa preenchida no mesmo slot de 16 px. O Seti é uma família só, preenchida, e a paleta dele é muda por desenho.
+- **A paleta tem teto.** Cor só para os tipos que o Seti colore (~10); pasta, `Dependencies`, `Frameworks` e `Packages` são **estrutura**, não tipo, e vão a `--muted`. `--icon-*` continua a fonte única, e o piso de 3:1 continua valendo: `--icon-git` mede **2,99:1** na linha focada (`#343434`) e sobe até passar.
+- **O que não muda.** `data-file-kind`, `data-icon` e os `data-testid` só ganham valores; nenhum é renomeado ou removido.
+
+## 2026-11-10 — O selo de símbolo sai do ícone do `.cs`
+
+- **A decisão.** O `.cs` passa a ter **um** glifo (o `_c-sharp` do Seti). O selo de 12 px com a letra do tipo sai do ícone. O **Symbol kind** continua no `title` e no `aria-describedby` — que já existem e já têm teste — e aparece como texto na linha quando o filtro da árvore está ativo.
+- **O que substitui.** A D2 de [SPEC-SOLUTION-FILE-ICONS](SPEC-SOLUTION-FILE-ICONS.md), que criou o selo justamente para não perder a informação do PR #23.
+- **Por que.** O selo ocupa 55% da altura de uma linha de 22 px e sangra 3 px para fora do slot: é o pixel mais chamativo de cada arquivo `.cs` e repete uma informação que só importa numa tarefa. O custo aceito: perde-se a leitura de "classe × interface" num relance; quem precisa dela usa o filtro, onde o tipo vira texto.
+
+## 2026-11-10 — A linha da árvore fica em 22 px; o `DESIGN.md` é que estava errado
+
+- **A decisão.** `.workspace-view .side .tree-row.sol-row` mantém `min-height: 22px` e fonte de 13 px. O `DESIGN.md` passa a declarar 22 px nos quatro lugares que prometiam 32/36 px (densidade, `--control-h`, seção "Árvore" e o alvo de 32 px).
+- **Por que.** 22 px com ícone de 16 px é a densidade do VS Code e do Rider, que é a referência desta frente. O documento é que prometia outra coisa — e ele é "proposta", nunca ratificado. A crítica de 2026-11-10 levantou a divergência; ela se resolve no doc, não no código.
+- **Consequência.** Só `DESIGN.md`; nenhum CSS muda por esta entrada. A camada de metadado de projeto que o mesmo doc descreve (`kind · TFM · restore` embaixo do nome) **não** existe no código e entra como trabalho da spec, não como correção de doc.
