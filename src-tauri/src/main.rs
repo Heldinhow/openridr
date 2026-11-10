@@ -213,6 +213,10 @@ fn default_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 }
 
 fn main() {
+    // A Mac opened from Finder, the Dock or Spotlight is started by `launchd`, so the environment
+    // of `~/.zshrc` never reaches it and `dotnet restore` loses the private-feed credentials. The
+    // merge has to happen before anything spawns a child; on Linux and Windows it is a no-op.
+    openridr_host::shell_env::apply();
     let host = Arc::new(Host::new());
     // Linux has no dialog inside the host: the XDG portal answers on the connection that called
     // it, so the shell owns the chooser and registers it here. macOS keeps `osascript` in the
