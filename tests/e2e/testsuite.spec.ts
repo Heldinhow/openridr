@@ -91,9 +91,11 @@ test("a grouped tree filters without losing selection and rerun failed uses the 
       "OrderDesk.Tests.OrderTests.Id_is_preserved",
     );
 
-    // The filter keeps the groups of the matches and never changes the selection.
+    // The filter keeps the groups of the matches and never changes the selection. It lives in the
+    // labeled disclosure since #372.
     await page.getByTestId("test-checkbox-0").check();
     await expect(page.getByTestId("tests-counts")).toContainText("1 selected");
+    await page.getByTestId("tests-overflow").locator("summary").click();
     await page.getByTestId("tests-filter").fill("Skipped");
     await expect(page.getByTestId("tests-filter-count")).toHaveText("1 of 4 match");
     await expect(page.getByTestId("test-item-3")).toBeVisible();
@@ -110,6 +112,7 @@ test("a grouped tree filters without losing selection and rerun failed uses the 
     await expect(page.getByTestId("tests-counts")).toContainText("1 selected");
     await page.getByTestId("tests-filter").fill("");
     await expect(page.getByTestId("test-item-0")).toBeVisible();
+    await page.getByTestId("tests-overflow").locator("summary").click();
 
     await page.getByTestId("tests-run-all").click();
     await expect(page.getByTestId("tests-run-state")).toContainText("Run completed", {
