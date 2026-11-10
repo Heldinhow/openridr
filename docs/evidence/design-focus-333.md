@@ -27,7 +27,7 @@ Geometria medida (1440 e 1100, mesmos valores):
   reportam `outline-offset: -2px`, `outline-width: 2px`, `outline-style: solid`,
   `outline-color: rgb(84, 138, 247)`, com o botão inteiro dentro do rail nos quatro lados.
 - Contraste do anel `--accent` sobre o fundo do rail (`--chrome` `#17181a`) = **5,38:1**; sobre o
-  botão ativo (`--accent-surface-strong` sobre o chrome, `#2a2b2d`) = **4,34:1** — acima dos 3:1
+  botão ativo (`--accent-surface-strong` sobre o chrome, `#2a2a2c`) = **4,34:1** — acima dos 3:1
   exigidos para indicador de foco.
 - Auditoria de nome acessível: **nenhum** botão do rail sem `aria-label` (inclusive os desabilitados
   "M/A/D"), nas duas larguras.
