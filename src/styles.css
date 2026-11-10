@@ -111,6 +111,14 @@
   --debug-current-line-strong: rgba(92, 74, 35, 0.6);
   --diff-del-surface: #5a2d33;
   --diff-add-surface: #2d4a35;
+  /* The commit tool's diff view used its own hexes; the same edit now reads the same in both
+     diff views (#368). Values are the ones that were shipped there. */
+  --diff-mod-surface: #263d61;
+  --diff-empty-surface: #27292e;
+  --diff-intraline-surface: #5377ac;
+  --diff-connector-removed: #7a3b44;
+  --diff-connector-added: #2f6b44;
+  --diff-connector-modified: #3f5f8f;
   --change-add: #4a9a4f;
   --change-mod: #4a86c5;
   --r-sm: 4px;
@@ -137,6 +145,7 @@
   --git-untracked: #eda773;
   --git-ignored: #b3b3b3;
   --git-conflicted: #f9a1a1;
+  --git-deleted: #d27d7d;
 }
 
 /* `light-dark()` is used only where the engine supports it; the dark fallback above stays valid. */
@@ -147,6 +156,7 @@
     --git-untracked: light-dark(#8a4a12, #eda773);
     --git-ignored: light-dark(#6a6a6a, #b3b3b3);
     --git-conflicted: light-dark(#a51f1f, #f9a1a1);
+    --git-deleted: light-dark(#a51f1f, #d27d7d);
   }
 }
 
@@ -729,7 +739,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   height: 100%;
   display: grid;
   grid-template-columns: 34px var(--sidebar-width, 280px) 4px minmax(0, 1fr) var(--tools-width, 0px) 34px;
-  grid-template-rows: 52px 0 minmax(0, 1fr) 4px var(--output-height, 220px) 28px;
+  grid-template-rows: 52px 0 minmax(0, 1fr) 4px var(--output-height, 220px) 32px;
   overflow: hidden;
   position: relative;
 }
@@ -740,7 +750,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   .workspace-view.tools-open:has(.analysis-plan[open]) { --tools-width: 640px; }
 }
 /* Ticket 06: a docked preview stays inside the editor; the bottom tool window keeps --output-height. */
-.workspace-view.bottom-closed { grid-template-rows: 52px 0 minmax(0, 1fr) 0 0 28px; }
+.workspace-view.bottom-closed { grid-template-rows: 52px 0 minmax(0, 1fr) 0 0 32px; }
 .workspace-view > .toolbar { grid-column: 1 / -1; grid-row: 1; position: relative; z-index: 30; }
 /* Notifications overlay the editor top instead of taking grid height and moving tabs/editor. */
 .workspace-view > .workspace-notices { position: absolute; top: 100px; right: calc(34px + var(--tools-width, 0px) + 12px); width: min(520px, calc(100vw - 120px)); max-height: 30vh; overflow-y: auto; z-index: 20; }
@@ -1123,7 +1133,7 @@ kbd { font: 11px var(--sans); color: var(--muted); }
 .status-mode { height: 100%; padding: 0 6px; border: 0; border-radius: 0; background: transparent; font: inherit; cursor: pointer; }
 .status-mode:hover, .status-mode[aria-expanded="true"] { background: var(--accent-surface-strong); }
 .status-mode:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.status-diagnostics, .status-analysis-action { flex: 0 0 auto; height: 100%; padding: 0 6px; border: 0; border-radius: 0; background: transparent; font: inherit; cursor: pointer; }
+.status-diagnostics, .status-analysis-action { flex: 0 0 auto; height: 100%; min-height: 0; padding: 0 6px; border: 0; border-radius: 0; background: transparent; font: inherit; cursor: pointer; }
 .status > [data-testid="status-analysis"] { flex: 0 0 auto; white-space: nowrap; }
 .status-diagnostics.error { color: var(--status-error); }
 .status-diagnostics.warning { color: var(--status-warning); }
@@ -1356,7 +1366,6 @@ kbd { font: 11px var(--sans); color: var(--muted); }
   padding: 0 var(--sp-3);
   color: var(--muted);
   background: var(--panel);
-  border-top: 1px solid var(--line);
   font-size: var(--fs-badge);
   flex: 0 0 auto;
   overflow-x: auto;
@@ -2815,7 +2824,9 @@ mark.search-hit {
 /* The rail is 34 px wide and scrolls, so a 2 px ring at offset 2 is clipped on both sides.
    The ring goes inset: still a full 2 px border, fully inside the button. */
 .toolband-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.status { background: var(--chrome); border-top: 1px solid var(--line); }
+/* The separator is an inset line instead of a border so the 32 px row is the real content box:
+   every control in the bar is a 32 px target, not a 31 px one (#365, #370). */
+.status { background: var(--chrome); box-shadow: inset 0 1px var(--line); }
 /* A recovery action that cannot run is replaced by its reason, never shown disabled without one. */
 .status > .status-reason { max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 /* One sentence while restore/evaluation runs; no action that cannot act yet. */
@@ -2970,7 +2981,10 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .tree-chevron { width: 10px; color: var(--muted); font-size: var(--fs-badge); flex: 0 0 auto; }
 .tree-root { font-weight: 600; display: flex; align-items: center; gap: var(--sp-1); }
 .tree-count { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 400; }
-.explorer-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-2); }
+.explorer-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+/* The title yields before the tools do: the header keeps its 32 px targets at the narrowest
+   sidebar and wraps the band instead of overflowing (#370). */
+.explorer-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .explorer-tools { display: inline-flex; gap: 2px; }
 .explorer-tools button { padding: 0; background: transparent; border-color: transparent; color: var(--muted); font-size: var(--fs-label); }
 .explorer-tools button:hover:not(:disabled) { background: var(--accent-surface-strong); color: var(--fg); }
@@ -2979,7 +2993,7 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .insp-error { color: var(--error); }
 .insp-warning { color: var(--warning); }
 /* Evaluation controls: one icon action in the status bar; the model state is text, never a tree node. */
-.status-evaluation-action { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 18px; min-height: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--muted); }
+.status-evaluation-action { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; min-height: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--muted); }
 .status-evaluation-action .icon { width: 14px; height: 14px; }
 .status-evaluation-action:hover:not(:disabled) { background: var(--accent-surface-strong); color: var(--fg); }
 .status-evaluation-action:disabled { background: transparent; border: 0; opacity: 0.5; }
@@ -3028,10 +3042,11 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .status > [data-testid="status-breadcrumb"], .status > [data-testid="status-sdk"], .status > [data-testid="status-evaluation"], .status > span:not([data-testid]) { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
 .status > [data-testid="status-keymap"] { margin-left: auto; }
 .status > [data-testid="status-analysis"] { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Readiness is the reason the bar exists: it keeps its whole summary and the breadcrumb yields
+   instead (#365). The analysis shows state and action; its reason lives in the action's title. */
 .status > [data-testid="status-breadcrumb"] { flex: 0 1 200px; }
-.status > [data-testid="status-evaluation"] { max-width: 68px; }
-.status > [data-testid="status-evaluation"].is-stale { max-width: 170px; }
-.status > [data-testid="status-analysis"] { max-width: 170px; }
+.status > [data-testid="status-evaluation"] { flex: 0 0 auto; max-width: none; }
+.status > [data-testid="status-analysis"] { flex: 0 0 auto; max-width: none; }
 .breadcrumb-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); padding-right: var(--sp-3); border-bottom: 1px solid var(--line-internal); flex: 0 0 auto; }
 .breadcrumb-row .breadcrumb { border-bottom: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .breadcrumb { font-size: var(--fs-meta); }
@@ -3073,7 +3088,7 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .tree-node { padding-left: 28px; }
 .tree-row .tag.warning { text-transform: uppercase; letter-spacing: 0.02em; font-size: var(--fs-badge); }
 .tree-note.error { color: var(--error); }
-.explorer-tools button { width: 24px; height: 24px; min-height: 24px; display: inline-flex; align-items: center; justify-content: center; box-shadow: none; }
+.explorer-tools button { width: 32px; height: 32px; min-height: 32px; display: inline-flex; align-items: center; justify-content: center; box-shadow: none; }
 .explorer-tools .icon { width: 16px; height: 16px; }
 .side { display: flex; flex-direction: column; }
 .tree-name { flex: 0 1 auto; min-width: 10ch; }
@@ -3211,13 +3226,10 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .build-panel[data-testid="tests-panel"] { flex-direction: row; flex-wrap: wrap; align-items: center; align-content: flex-start; gap: var(--sp-1) var(--sp-3); }
 .build-panel[data-testid="tests-panel"] > * { flex: 1 1 100%; }
 .build-panel[data-testid="tests-panel"] > [data-testid="tests-counts"] { flex: 0 0 auto; margin: 0 0 0 10px; padding: 0; }
-.build-panel[data-testid="tests-panel"] > .tests-filter-row { flex: 1 1 240px; margin: 0; }
-.build-panel[data-testid="tests-panel"] > .tests-filter-row > span:first-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .tests-tabs { display: flex; align-items: center; gap: 2px; padding: 0 var(--sp-2); border-bottom: 1px solid var(--line); }
 .tests-tabs .tab-label { min-height: var(--control-h); padding: 0 10px; border-radius: var(--r-md) var(--r-md) 0 0; color: var(--muted); background: transparent; }
 .tests-tabs .tab-label.active { color: var(--fg); background: var(--raised); }
 .tests-tabs .tab-label:disabled { opacity: 0.5; }
-.tests-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: var(--sp-1) var(--sp-2); border-bottom: 1px solid var(--line-internal); }
 /* Secondary panel controls (expand/collapse/export, package filters) sit behind one labeled
    disclosure so the list keeps the panel height. The summary is a real control: Tab reaches it,
    Enter/Space opens it, and every button inside keeps its data-testid. */
@@ -3227,8 +3239,23 @@ button[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 .panel-disclosure > summary::after { content: "\25BE"; margin-left: var(--sp-1); color: var(--muted); }
 .panel-disclosure[open] > summary { background: var(--accent-surface-strong); }
 .panel-disclosure-body { position: absolute; right: 0; top: calc(100% + var(--sp-1)); z-index: 20; display: flex; align-items: flex-end; gap: var(--sp-2); padding: var(--sp-2); background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-menu); }
-.tests-toolbar button { display: inline-flex; align-items: center; gap: var(--sp-1); }
-.tests-toolbar > .muted[data-testid="tests-export-path"] { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A closed disclosure paints nothing and, more important, must not hit-test: the popover is
+   absolutely positioned over the content below it, and a closed one used to intercept clicks
+   meant for the panel (#372). */
+.panel-disclosure:not([open]) > .panel-disclosure-body { display: none; }
+/* The Tests disclosure holds the counters, the filter and the secondary actions in two rows;
+   the popover wraps instead of running off the panel (#372). */
+/* The primary row sits right above the tab strip: a floating popover would cover the tabs and the
+   first rows of the list while it is open, so this disclosure expands inline and gives the space
+   back when it closes (#372). */
+.build-panel[data-testid="tests-panel"] .panel-disclosure[open] { flex: 1 1 100%; }
+.build-panel[data-testid="tests-panel"] .panel-disclosure-body { position: static; box-shadow: none; border: 0; border-top: 1px solid var(--line-internal); background: transparent; padding: var(--sp-2) 0 0; }
+.tests-disclosure { flex-direction: column; align-items: stretch; gap: var(--sp-2); }
+.tests-disclosure-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); }
+.tests-disclosure-row .tests-filter-row { flex: 1 1 200px; margin: 0; }
+.tests-disclosure-row .tests-filter-row > span:first-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.tests-disclosure button { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.tests-disclosure > .muted[data-testid="tests-export-path"] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tests-body { display: flex; align-items: stretch; flex: 1 1 auto; min-height: 0; border-top: 1px solid var(--line-internal); }
 .tests-actions { display: flex; flex-direction: column; gap: 2px; flex: 0 0 74px; padding: var(--sp-1); border-right: 1px solid var(--line-internal); background: var(--bg); }
 .tests-actions button { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 42px; padding: 3px 2px; border-radius: var(--r-md); box-shadow: none; background: transparent; color: var(--muted); font-size: var(--fs-badge); }
@@ -3444,8 +3471,11 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .sol-row .tree-symbol-kind { color: var(--muted); font-size: var(--fs-meta); }
 .explorer-tools button.active { background: var(--accent-surface-strong); color: var(--fg); }
 .tree-filter { margin: 6px 10px 2px; padding: var(--sp-1) var(--sp-2); min-height: 28px; }
-.explorer-heading { flex-wrap: nowrap; }
-.explorer-tools { flex: 0 0 auto; gap: 0; }
+.explorer-heading { flex-wrap: wrap; }
+.explorer-tools { flex: 0 0 auto; gap: 0; margin-left: auto; }
+/* 32 px targets plus the title need 232 px; the default 280 px sidebar fits them on one line and
+   only the 220 px minimum wraps the band. The header grows by 2 px, not by 8. */
+.side > .panel-title { padding: 4px 12px; }
 
 /* Solution Explorer visual language: the drawing carries the type, never an extra chip. Every
    glyph is a 16px Material Icon Theme SVG in the theme's own colours, so nothing here tints it:
