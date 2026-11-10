@@ -3,6 +3,7 @@ import type { EvaluationProject, Lsp } from "../../src/host/client";
 import {
   buildDisabledReason,
   debugDisabledReason,
+  isDiscoveryGateReason,
   runAvailabilityReason,
   type GateContext,
 } from "../../src/executionGates";
@@ -132,5 +133,12 @@ describe("the execution gates name the analysis that is still loading", () => {
     running.debugActive = true;
     expect(runAvailabilityReason(running, consoleProject, true)).toBe(analysisReason);
     expect(debugDisabledReason(running)).toBe(analysisReason);
+  });
+
+  test("only the discovery reason carries the cancel action (#367)", () => {
+    expect(isDiscoveryGateReason(discoveryReason)).toBe(true);
+    expect(isDiscoveryGateReason(analysisReason)).toBe(false);
+    expect(isDiscoveryGateReason("Trust the workspace before building; nothing runs in Restricted mode.")).toBe(false);
+    expect(isDiscoveryGateReason(null)).toBe(false);
   });
 });

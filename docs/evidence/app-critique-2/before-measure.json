@@ -1,0 +1,556 @@
+{
+  "status": {
+    "footer": {
+      "w": 1432,
+      "h": 28,
+      "x": 4,
+      "y": 868,
+      "scrollWidth": 1432,
+      "clientWidth": 1432,
+      "text": "OrderDesk.slnTrusted modeAnalysis runtime 10.0.14 · Project SDK 8.0.408Evaluated · Debug · TFM net8.0 · revision 2Analysis: Loading solution…Keymap: Rider (macO",
+      "title": null,
+      "color": "rgb(179, 179, 179)",
+      "background": "rgb(5, 5, 5)",
+      "display": "flex",
+      "hidden": false
+    },
+    "evaluation": {
+      "w": 68,
+      "h": 18,
+      "x": 338,
+      "y": 873.5,
+      "scrollWidth": 242,
+      "clientWidth": 68,
+      "text": "Evaluated · Debug · TFM net8.0 · revision 2",
+      "title": "Evaluated · Debug · TFM net8.0 · revision 2",
+      "color": "rgb(179, 179, 179)",
+      "background": "rgba(0, 0, 0, 0)",
+      "display": "block",
+      "hidden": false
+    },
+    "evalState": {
+      "w": 242,
+      "h": 15,
+      "x": 338,
+      "y": 874.5,
+      "scrollWidth": 0,
+      "clientWidth": 0,
+      "text": "Evaluated · Debug · TFM net8.0 · revision 2",
+      "title": null,
+      "color": "rgb(179, 179, 179)",
+      "background": "rgba(0, 0, 0, 0)",
+      "display": "inline",
+      "hidden": false
+    },
+    "analysis": {
+      "w": 155,
+      "h": 18,
+      "x": 412,
+      "y": 873.5,
+      "scrollWidth": 155,
+      "clientWidth": 155,
+      "text": "Analysis: Loading solution…",
+      "title": null,
+      "color": "rgb(179, 179, 179)",
+      "background": "rgba(0, 0, 0, 0)",
+      "display": "block",
+      "hidden": false
+    },
+    "analysisAction": null,
+    "analysisBlocked": null,
+    "evalRun": {
+      "w": 18,
+      "h": 27,
+      "x": 314,
+      "y": 869,
+      "scrollWidth": 18,
+      "clientWidth": 18,
+      "text": "",
+      "title": "Re-evaluate project model",
+      "color": "rgb(179, 179, 179)",
+      "background": "rgba(0, 0, 0, 0)",
+      "display": "flex",
+      "hidden": false
+    },
+    "evalBlocked": null,
+    "keymap": {
+      "w": 138,
+      "h": 18,
+      "x": 1114,
+      "y": 873.5,
+      "scrollWidth": 138,
+      "clientWidth": 138,
+      "text": "Keymap: Rider (macOS)",
+      "title": null,
+      "color": "rgb(179, 179, 179)",
+      "background": "rgba(0, 0, 0, 0)",
+      "display": "block",
+      "hidden": false
+    },
+    "diagnostics": null
+  },
+  "treeHeader": [
+    {
+      "testid": "tree-show-all",
+      "label": "Show All Files",
+      "w": 24,
+      "h": 24,
+      "disabled": false
+    },
+    {
+      "testid": "tree-search",
+      "label": "Search in tree",
+      "w": 24,
+      "h": 24,
+      "disabled": false
+    },
+    {
+      "testid": "tree-locate",
+      "label": "Select opened file",
+      "w": 24,
+      "h": 24,
+      "disabled": true
+    },
+    {
+      "testid": "tree-expand-all",
+      "label": "Expand all",
+      "w": 24,
+      "h": 24,
+      "disabled": false
+    },
+    {
+      "testid": "tree-collapse-all",
+      "label": "Collapse all",
+      "w": 24,
+      "h": 24,
+      "disabled": false
+    },
+    {
+      "testid": "tree-more",
+      "label": "Options",
+      "w": 24,
+      "h": 24,
+      "disabled": false
+    },
+    {
+      "testid": "tree-minimize",
+      "label": "Hide Solution",
+      "w": 24,
+      "h": 24,
+      "disabled": false
+    }
+  ],
+  "treeHeading": {
+    "w": 227,
+    "h": 24,
+    "x": 54,
+    "y": 65.5,
+    "scrollWidth": 227,
+    "clientWidth": 227,
+    "text": "Solution",
+    "title": null,
+    "color": "rgb(245, 245, 245)",
+    "background": "rgba(0, 0, 0, 0)",
+    "display": "flex",
+    "hidden": false
+  },
+  "workspaceActions": {
+    "w": 32,
+    "h": 32,
+    "x": 1403,
+    "y": 62,
+    "scrollWidth": 30,
+    "clientWidth": 30,
+    "text": "",
+    "title": "Workspace tools · Restore succeeded · exit 0 · Analysis: loading",
+    "color": "rgb(179, 179, 179)",
+    "background": "rgba(0, 0, 0, 0)",
+    "display": "flex",
+    "hidden": false
+  },
+  "rightRail": [
+    {
+      "testid": "workspace-tools-toggle",
+      "label": "Workspace tools",
+      "w": 32,
+      "h": 32,
+      "disabled": false
+    },
+    {
+      "testid": null,
+      "label": "Monitoring",
+      "w": 32,
+      "h": 32,
+      "disabled": true
+    },
+    {
+      "testid": null,
+      "label": "AI Assistant",
+      "w": 32,
+      "h": 32,
+      "disabled": true
+    },
+    {
+      "testid": null,
+      "label": "Database",
+      "w": 32,
+      "h": 32,
+      "disabled": true
+    }
+  ],
+  "leftRail": [
+    {
+      "testid": "toolband-solution",
+      "label": "Solution Explorer tool window",
+      "w": 32,
+      "h": 32,
+      "disabled": false
+    },
+    {
+      "testid": "toolband-commit",
+      "label": "Commit tool window",
+      "w": 32,
+      "h": 32,
+      "disabled": false
+    },
+    {
+      "testid": "toolband-build",
+      "label": "Build tool window",
+      "w": 32,
+      "h": 32,
+      "disabled": false
+    },
+    {
+      "testid": "toolband-run",
+      "label": "Run tool window",
+      "w": 32,
+      "h": 32,
+      "disabled": false
+    },
+    {
+      "testid": "toolband-problems",
+      "label": "Problems tool window",
+      "w": 32,
+      "h": 32,
+      "disabled": false
+    },
+    {
+      "testid": "toolband-debug",
+      "label": "Debug tool window",
+      "w": 32,
+      "h": 32,
+      "disabled": false
+    },
+    {
+      "testid": "toolband-terminal",
+      "label": "Terminal tool window",
+      "w": 32,
+      "h": 32,
+      "disabled": false
+    },
+    {
+      "testid": "toolband-tests",
+      "label": "Tests tool window",
+      "w": 32,
+      "h": 32,
+      "disabled": false
+    },
+    {
+      "testid": "toolband-git",
+      "label": "Git tool window",
+      "w": 32,
+      "h": 32,
+      "disabled": false
+    },
+    {
+      "testid": "toolband-nuget",
+      "label": "NuGet tool window",
+      "w": 32,
+      "h": 32,
+      "disabled": false
+    }
+  ],
+  "emptyEditorHint": {
+    "w": 425,
+    "h": 19.5,
+    "x": 651.5,
+    "y": 533.8,
+    "scrollWidth": 425,
+    "clientWidth": 425,
+    "text": "Text editing is always available. Analysis and execution require trust.",
+    "title": null,
+    "color": "rgb(179, 179, 179)",
+    "background": "rgba(0, 0, 0, 0)",
+    "display": "block",
+    "hidden": false
+  },
+  "build": {
+    "tfm": {
+      "value": "",
+      "text": "Not selected",
+      "options": [
+        "Not selected",
+        "net8.0"
+      ]
+    },
+    "disabledReason": null,
+    "runDisabledReason": null,
+    "cancelDiscovery": null,
+    "cancelDiscoveryRun": null
+  },
+  "tests": {
+    "tfm": {
+      "value": "net8.0",
+      "text": "net8.0",
+      "options": [
+        "Not selected",
+        "net8.0"
+      ]
+    },
+    "panel": {
+      "w": 1032,
+      "h": 641,
+      "x": 348,
+      "y": 592,
+      "scrollWidth": 1032,
+      "clientWidth": 1032,
+      "text": "ExplorerAll tests from OrderDesk.TestsContinuous TestingCoverage✓ 0✗ 0– 0? 4FilterMore Expand all Collapse all ExportTest projectOrderDesk.TestsTFMNot selectedn",
+      "title": null,
+      "color": "rgb(245, 245, 245)",
+      "background": "rgba(0, 0, 0, 0)",
+      "display": "flex",
+      "hidden": false
+    },
+    "output": {
+      "w": 1060,
+      "h": 320,
+      "x": 334,
+      "y": 544,
+      "scrollWidth": 1060,
+      "clientWidth": 1060,
+      "text": "BuildRunProblemsDebugTerminalTestsGitNuGetExplorerAll tests from OrderDesk.TestsContinuous TestingCoverage✓ 0✗ 0– 0? 4FilterMore Expand all Collapse all ExportT",
+      "title": null,
+      "color": "rgb(245, 245, 245)",
+      "background": "rgb(16, 16, 16)",
+      "display": "flex",
+      "hidden": false
+    },
+    "tabs": {
+      "w": 1032,
+      "h": 33,
+      "x": 348,
+      "y": 628,
+      "scrollWidth": 1032,
+      "clientWidth": 1032,
+      "text": "ExplorerAll tests from OrderDesk.TestsContinuous TestingCoverage",
+      "title": null,
+      "color": "rgb(245, 245, 245)",
+      "background": "rgba(0, 0, 0, 0)",
+      "display": "flex",
+      "hidden": false
+    },
+    "toolbar": {
+      "w": 1032,
+      "h": 47,
+      "x": 348,
+      "y": 665,
+      "scrollWidth": 1032,
+      "clientWidth": 1032,
+      "text": "✓ 0✗ 0– 0? 4FilterMore Expand all Collapse all Export",
+      "title": null,
+      "color": "rgb(245, 245, 245)",
+      "background": "rgba(0, 0, 0, 0)",
+      "display": "flex",
+      "hidden": false
+    },
+    "controls": {
+      "w": 1032,
+      "h": 32,
+      "x": 348,
+      "y": 592,
+      "scrollWidth": 1032,
+      "clientWidth": 1032,
+      "text": "Test projectOrderDesk.TestsTFMNot selectednet8.0Refresh testsDiscovered 4 tests · exit 0",
+      "title": null,
+      "color": "rgb(245, 245, 245)",
+      "background": "rgba(0, 0, 0, 0)",
+      "display": "flex",
+      "hidden": false
+    },
+    "body": {
+      "w": 1032,
+      "h": 517,
+      "x": 348,
+      "y": 716,
+      "scrollWidth": 1032,
+      "clientWidth": 1032,
+      "text": "RunSelectedDebugRerun failedDiscovery detailsDiscoverydiscovery:1:1 · revision 1 · context 2Tree4 tests grouped from their fully qualified names.GroupingGroupin",
+      "title": null,
+      "color": "rgb(245, 245, 245)",
+      "background": "rgba(0, 0, 0, 0)",
+      "display": "flex",
+      "hidden": false
+    },
+    "actions": {
+      "w": 78,
+      "h": 516,
+      "x": 348,
+      "y": 717,
+      "scrollWidth": 77,
+      "clientWidth": 77,
+      "text": "RunSelectedDebugRerun failed",
+      "title": null,
+      "color": "rgb(245, 245, 245)",
+      "background": "rgb(9, 9, 9)",
+      "display": "flex",
+      "hidden": false
+    },
+    "items": {
+      "w": 710,
+      "h": 192,
+      "x": 438,
+      "y": 789,
+      "scrollWidth": 710,
+      "clientWidth": 710,
+      "text": "OrderDesk.Testsnot run4 testsOrderTestsnot run4 testsnot run OrderDesk.Tests.OrderTests.Id_is_preserved display name: OrderDesk.Tests.OrderTests.Id_is_preserved",
+      "title": null,
+      "color": "rgb(245, 245, 245)",
+      "background": "rgba(0, 0, 0, 0)",
+      "display": "block",
+      "hidden": false
+    },
+    "firstRow": {
+      "w": 678,
+      "h": 32,
+      "x": 470,
+      "y": 853,
+      "scrollWidth": 678,
+      "clientWidth": 678,
+      "text": "not run OrderDesk.Tests.OrderTests.Id_is_preserved display name: OrderDesk.Tests.OrderTests.Id_is_preserved · tests/OrderDesk.Tests/OrderDesk.Tests.csproj · net",
+      "title": "OrderDesk.Tests.OrderTests.Id_is_preserved",
+      "color": "rgb(245, 245, 245)",
+      "background": "rgba(0, 0, 0, 0)",
+      "display": "list-item",
+      "hidden": false
+    },
+    "filter": {
+      "w": 232,
+      "h": 32,
+      "x": 543,
+      "y": 675,
+      "scrollWidth": 230,
+      "clientWidth": 230,
+      "text": "",
+      "title": "Hides tests that do not match; groups with matches stay and the selection is unchanged.",
+      "color": "rgb(245, 245, 245)",
+      "background": "rgb(9, 9, 9)",
+      "display": "block",
+      "hidden": false
+    },
+    "discover": {
+      "w": 101,
+      "h": 32,
+      "x": 699,
+      "y": 592,
+      "scrollWidth": 99,
+      "clientWidth": 99,
+      "text": "Refresh tests",
+      "title": "Runs the project's VSTest adapter through dotnet test --list-tests. Never restores, builds a solution or edits packages.",
+      "color": "rgb(245, 245, 245)",
+      "background": "rgba(255, 255, 255, 0.04)",
+      "display": "block",
+      "hidden": false
+    },
+    "runAll": {
+      "w": 69,
+      "h": 42,
+      "x": 352,
+      "y": 721,
+      "scrollWidth": 67,
+      "clientWidth": 67,
+      "text": "Run",
+      "title": "Runs every identity of the current discovery with VSTest --no-build --no-restore and the built-in TRX logger.",
+      "color": "rgb(179, 179, 179)",
+      "background": "rgba(0, 0, 0, 0)",
+      "display": "flex",
+      "hidden": false
+    },
+    "overflow": {
+      "w": 59,
+      "h": 32,
+      "x": 1313,
+      "y": 672,
+      "scrollWidth": 59,
+      "clientWidth": 59,
+      "text": "More Expand all Collapse all Export",
+      "title": null,
+      "color": "rgb(245, 245, 245)",
+      "background": "rgba(0, 0, 0, 0)",
+      "display": "block",
+      "hidden": false
+    },
+    "counts": {
+      "w": 726,
+      "h": 18,
+      "x": 430,
+      "y": 753,
+      "scrollWidth": 726,
+      "clientWidth": 726,
+      "text": "4 tests · 0 selected · discovery:1:1 · revision 1",
+      "title": null,
+      "color": "rgb(179, 179, 179)",
+      "background": "rgba(0, 0, 0, 0)",
+      "display": "block",
+      "hidden": false
+    },
+    "state": {
+      "w": 160,
+      "h": 18,
+      "x": 810,
+      "y": 599,
+      "scrollWidth": 160,
+      "clientWidth": 160,
+      "text": "Discovered 4 tests · exit 0",
+      "title": null,
+      "color": "rgb(245, 245, 245)",
+      "background": "rgb(27, 27, 27)",
+      "display": "block",
+      "hidden": false
+    },
+    "tabsList": [
+      {
+        "testid": "tests-tab-explorer",
+        "label": "Explorer",
+        "w": 68,
+        "h": 32,
+        "disabled": false
+      },
+      {
+        "testid": "tests-tab-session",
+        "label": "All tests from OrderDesk.Tests",
+        "w": 195,
+        "h": 32,
+        "disabled": false
+      },
+      {
+        "testid": "tests-tab-continuous",
+        "label": "Continuous Testing",
+        "w": 134,
+        "h": 32,
+        "disabled": true
+      },
+      {
+        "testid": "tests-tab-coverage",
+        "label": "Coverage",
+        "w": 82,
+        "h": 32,
+        "disabled": true
+      }
+    ]
+  },
+  "git": {
+    "commitButton": null,
+    "panel": null
+  },
+  "consoleErrors": []
+}

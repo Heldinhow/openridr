@@ -264,7 +264,8 @@ test("the build gate names the automatic discovery before the click", async ({ p
     await expect(page.getByTestId("toolbar-run")).toHaveAttribute("title", discoveryReason);
     await expect(page.getByTestId("toolbar-debug")).toHaveAttribute("title", discoveryReason);
     await page.getByTestId("bottom-tab-build").click();
-    await expect(page.getByTestId("build-disabled-reason")).toHaveText(discoveryReason);
+    // #367: the message carries the cancel action itself, so the reason is a prefix of its text.
+    await expect(page.getByTestId("build-disabled-reason")).toContainText(discoveryReason);
     await expect(page.getByTestId("build-action")).toBeDisabled();
     await expect(page.getByTestId("build-action")).toHaveAttribute("title", new RegExp(`^Build startup.* — ${discoveryReason.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
     await expect(page.getByTestId("build-solution")).toBeDisabled();
@@ -290,6 +291,36 @@ test("the build gate names the automatic discovery before the click", async ({ p
     await expect(page.getByTestId("run-disabled-reason")).toHaveCount(0);
     await page.getByTestId("build-action").click();
     await expectBuildState(page, "Build succeeded", 60_000);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+// #367: the reason that sends the user to cancel the discovery carries the control itself, calling
+// the same tests.cancel the Tests panel does. Without it the first gesture (Run) is a dead end.
+test("the discovery gate offers the cancel action next to its reason", async ({ page }) => {
+  const { base, copy } = tempCopy("Order Desk discovery cancel");
+  try {
+    await openTrustedEvaluated(page, copy);
+    await restoreAndReload(page);
+    await page.getByTestId("bottom-tab-tests").click();
+    await expect(page.getByTestId("tests-discover")).toBeEnabled({ timeout: 120_000 });
+    await page.getByTestId("tests-discover").click();
+
+    await page.getByTestId("bottom-tab-build").click();
+    await expect(page.getByTestId("build-disabled-reason")).toContainText(discoveryReason);
+    const cancel = page.getByTestId("build-cancel-discovery");
+    await expect(cancel).toBeVisible();
+    await expect(cancel).toBeEnabled();
+    await expect(page.getByTestId("run-cancel-discovery")).toBeVisible();
+
+    await cancel.click();
+    // The same host call the Tests panel makes: the discovery ends and the gate clears by itself.
+    await expect(page.getByTestId("build-disabled-reason")).toHaveCount(0, { timeout: 60_000 });
+    await expect(page.getByTestId("run-disabled-reason")).toHaveCount(0);
+    await expect(page.getByTestId("build-action")).toBeEnabled();
+    await page.getByTestId("bottom-tab-tests").click();
+    await expect(page.getByTestId("tests-state")).toContainText(/cancel/i, { timeout: 60_000 });
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }

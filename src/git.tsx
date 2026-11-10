@@ -1138,6 +1138,7 @@ export function CommitPanel({
             )}
             <button
               type="button"
+              className="primary"
               data-testid="commit-submit"
               disabled={busy || message.trim() === "" || commitPaths.length === 0 || operationReason !== null}
               title={operationReason ?? undefined}

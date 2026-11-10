@@ -2142,3 +2142,10 @@ A paleta aprovada no workspace (#349) deixa de ser escopada e vira o `:root` do 
 - **Limites.** 5 s de prazo; estourado, o shell é morto e o ambiente atual fica. A leitura do pipe roda em thread própria com prazo, então um `.zshrc` que deixa um daemon segurando o stdout não trava a abertura. `_`, `SHLVL`, `PWD` e `OLDPWD` não são mesclados: descrevem o shell auxiliar, não o ambiente do usuário. Nenhum valor vai para o log — só a contagem e o caminho do shell, ou o motivo da falha.
 - **Linux e Windows.** `should_resolve` é falso fora do macOS, e a chamada em `main` é a única mudança no shell do app; parser, mesclagem e prazo são testados no Linux.
 - **Custo aceito.** A resolução roda antes do plugin de instância única, então uma segunda abertura paga o tempo do shell (tipicamente < 300 ms; 5 s no pior caso) antes de sair e focar a janela existente.
+
+## 2026-11-10 — O rail direito perde os três botões desabilitados (issue #371)
+
+- **A decisão.** "Monitoring", "AI Assistant" e "Database" saem do rail direito. O rail fica com o botão "Workspace tools", que é o único que abre alguma coisa. Voltar a ter qualquer um dos três é decisão de produto do Helder, não de uma sessão.
+- **O que substitui.** O bullet "G13/G21/G22/G23 (chrome)" de 2026-11-04, que mantinha os três visíveis e desabilitados com o tooltip "`<nome>` is not part of OpenRidr". Aquele argumento era paridade com o Rider; a direção atual é **IDE simplificada** (rodar, depurar, executar), e um placeholder sem função contradiz isso.
+- **Por que.** O rail é a maior densidade de ícones da tela; três deles só diziam o que o produto não é, a 11 px e 4,3:1. O espaço não é reservado para nada: o rail continua com o que tem função e nada ocupa o lugar deles.
+- **O que muda no contrato.** Nenhum `data-testid` sai (os três não tinham). O spec `shell.spec.ts` passa a provar a ausência pelo nome acessível em vez da presença desabilitada.

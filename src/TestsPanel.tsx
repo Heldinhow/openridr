@@ -876,73 +876,10 @@ export function TestsPanel({
         </button>
       </div>
 
-      <div className="tests-toolbar" role="toolbar" aria-label="Test actions">
-        <span className="tag success" data-testid="tests-count-passed" title="Passed in the last run of this discovery">
-          ✓ {run.counts.passed}
-        </span>
-        <span className="tag error" data-testid="tests-count-failed" title="Failed in the last run of this discovery">
-          ✗ {run.counts.failed}
-        </span>
-        <span className="tag" data-testid="tests-count-skipped" title="Skipped or not executed in the last run">
-          – {run.counts.skipped + run.counts.notExecuted}
-        </span>
-        <span className="tag" data-testid="tests-count-not-run" title="No result in the last run of this discovery">
-          ? {run.revision === 0 ? items.length : Math.max(0, items.length - run.counts.matched)}
-        </span>
-        <label className="tests-filter-row">
-          <span>Filter</span>
-          <input
-            data-testid="tests-filter"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            placeholder="Filter tests by name"
-            title="Hides tests that do not match; groups with matches stay and the selection is unchanged."
-          />
-        </label>
-        <span className="push" />
-        <details className="panel-disclosure" data-testid="tests-overflow">
-          <summary aria-label="More test actions" title="Expand, collapse and export the current discovery">More</summary>
-          <div className="panel-disclosure-body">
-            <button
-              type="button"
-              data-testid="tests-expand-all"
-              onClick={() => setCollapsed(new Set())}
-              title="Expands every group in the tree."
-            >
-              <Icon name="expandAll" /> Expand all
-            </button>
-            <button
-              type="button"
-              data-testid="tests-collapse-all"
-              onClick={() => setCollapsed(new Set(groupKeys(tree)))}
-              title="Collapses every group; the tree and selection stay the same."
-            >
-              <Icon name="collapseAll" /> Collapse all
-            </button>
-            <button
-              type="button"
-              data-testid="tests-export"
-              disabled={exporting || (discovery.revision === 0 && run.revision === 0)}
-              onClick={() => void exportResults()}
-              title="Writes the current discovery and the last run to a JSON file in the OpenRidr app home."
-            >
-              <Icon name="text" /> {exporting ? "Exporting…" : "Export"}
-            </button>
-          </div>
-        </details>
-        {exported && (
-          <span className="muted" data-testid="tests-export-path" title={exported.path}>
-            Exported {exported.bytes} bytes to <code>{exported.path}</code>
-          </span>
-        )}
-        {exportError && (
-          <span className="error" role="alert" data-testid="tests-export-error">
-            {exportError}
-          </span>
-        )}
-      </div>
-
-      <div className="build-controls">
+      {/* One primary command line: project, TFM, discovery and Run. Counters, filter and the
+          secondary actions live behind one labeled disclosure so the list keeps the panel (#372,
+          the same pattern as #331). */}
+      <div className="build-controls" role="toolbar" aria-label="Test actions">
         <label className="eval-field">
           <span>Test project</span>
           <select
@@ -1016,6 +953,19 @@ export function TestsPanel({
             Retry discovery
           </button>
         )}
+        <button
+          data-testid="tests-run-all"
+          disabled={runBlocked !== null}
+          onClick={() => selectedProject && onRun(selectedProject.path, "all", [])}
+          title={
+            runBlocked ??
+            "Runs every identity of the current discovery with VSTest --no-build --no-restore and the built-in TRX logger."
+          }
+          aria-label="Run all tests"
+        >
+          <Icon name="run" />
+          <span>Run</span>
+        </button>
         <span
           className={`tag ${discovery.state === "failed" ? "error" : ""}`}
           data-testid="tests-state"
@@ -1023,23 +973,81 @@ export function TestsPanel({
         >
           {discoveryStateLabel(discovery)}
         </span>
+        <details className="panel-disclosure" data-testid="tests-overflow">
+          <summary aria-label="More test actions" title="Counters, filter and the secondary actions of the current discovery">More</summary>
+          <div className="panel-disclosure-body tests-disclosure">
+            <p className="muted" data-testid="tests-counts">
+              {items.length} test{items.length === 1 ? "" : "s"} · {selected.size} selected ·{" "}
+              <span className="sr-only">{discovery.discoveryId ?? "no discovery"} · revision {discovery.revision}</span>
+              {discovery.partial ? " · partial" : ""}
+            </p>
+            <div className="tests-disclosure-row">
+              <span className="tag success" data-testid="tests-count-passed" title="Passed in the last run of this discovery">
+                ✓ {run.counts.passed}
+              </span>
+              <span className="tag error" data-testid="tests-count-failed" title="Failed in the last run of this discovery">
+                ✗ {run.counts.failed}
+              </span>
+              <span className="tag" data-testid="tests-count-skipped" title="Skipped or not executed in the last run">
+                – {run.counts.skipped + run.counts.notExecuted}
+              </span>
+              <span className="tag" data-testid="tests-count-not-run" title="No result in the last run of this discovery">
+                ? {run.revision === 0 ? items.length : Math.max(0, items.length - run.counts.matched)}
+              </span>
+              <label className="tests-filter-row">
+                <span>Filter</span>
+                <input
+                  data-testid="tests-filter"
+                  value={filter}
+                  onChange={(event) => setFilter(event.target.value)}
+                  placeholder="Filter tests by name"
+                  title="Hides tests that do not match; groups with matches stay and the selection is unchanged."
+                />
+              </label>
+            </div>
+            <div className="tests-disclosure-row">
+              <button
+                type="button"
+                data-testid="tests-expand-all"
+                onClick={() => setCollapsed(new Set())}
+                title="Expands every group in the tree."
+              >
+                <Icon name="expandAll" /> Expand all
+              </button>
+              <button
+                type="button"
+                data-testid="tests-collapse-all"
+                onClick={() => setCollapsed(new Set(groupKeys(tree)))}
+                title="Collapses every group; the tree and selection stay the same."
+              >
+                <Icon name="collapseAll" /> Collapse all
+              </button>
+              <button
+                type="button"
+                data-testid="tests-export"
+                disabled={exporting || (discovery.revision === 0 && run.revision === 0)}
+                onClick={() => void exportResults()}
+                title="Writes the current discovery and the last run to a JSON file in the OpenRidr app home."
+              >
+                <Icon name="text" /> {exporting ? "Exporting…" : "Export"}
+              </button>
+            </div>
+            {exported && (
+              <span className="muted" data-testid="tests-export-path" title={exported.path}>
+                Exported {exported.bytes} bytes to <code>{exported.path}</code>
+              </span>
+            )}
+            {exportError && (
+              <span className="error" role="alert" data-testid="tests-export-error">
+                {exportError}
+              </span>
+            )}
+          </div>
+        </details>
       </div>
 
       <div className="tests-body">
-        <nav className="tests-actions" aria-label="Test actions">
-          <button
-            data-testid="tests-run-all"
-            disabled={runBlocked !== null}
-            onClick={() => selectedProject && onRun(selectedProject.path, "all", [])}
-            title={
-              runBlocked ??
-              "Runs every identity of the current discovery with VSTest --no-build --no-restore and the built-in TRX logger."
-            }
-            aria-label="Run all tests"
-          >
-            <Icon name="run" />
-            <span>Run</span>
-          </button>
+        <nav className="tests-actions" aria-label="Test run actions">
           <button
             data-testid="tests-run-selected"
             disabled={runBlocked !== null || selected.size === 0}
@@ -1263,11 +1271,6 @@ export function TestsPanel({
             </p>
           )}
 
-          <p className="muted" data-testid="tests-counts">
-            {items.length} test{items.length === 1 ? "" : "s"} · {selected.size} selected ·{" "}
-            <span className="sr-only">{discovery.discoveryId ?? "no discovery"} · revision {discovery.revision}</span>
-            {discovery.partial ? " · partial" : ""}
-          </p>
           {items.length > 0 && visibleCount === 0 && (
             <p className="notice" data-testid="tests-filter-empty" role="status">
               No test matches “{filter}”. Clear the filter to see the {items.length} discovered

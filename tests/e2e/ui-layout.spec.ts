@@ -233,6 +233,7 @@ for (const viewport of [{ width: 1600, height: 1000 }, { width: 1440, height: 90
     );
     const evaluationLabel = page.getByTestId("status-evaluation");
     await expect(evaluationLabel).toHaveAttribute("title", /^Evaluated · Debug · TFM .* · revision \d+$/);
-    expect(await evaluationLabel.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    // #365: readiness is never the item that yields; the whole summary fits at 1440 px.
+    expect(await evaluationLabel.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(false);
   });
 }

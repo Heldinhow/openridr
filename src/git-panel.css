@@ -10,17 +10,17 @@
 .commit-row .commit-file { gap: 6px; }
 .commit-row .commit-path { flex-direction: row; gap: 7px; align-items: baseline; }
 .commit-row .commit-name { flex: 0 0 auto; max-width: 65%; font-weight: 400; }
-.commit-name.modified { color: #78a9d1; }
-.commit-name.added { color: #80bd88; }
-.commit-name.deleted { color: #d27d7d; }
-.commit-name.untracked { color: #d99578; }
+.commit-name.modified { color: var(--git-modified); }
+.commit-name.added { color: var(--git-added); }
+.commit-name.deleted { color: var(--git-deleted); }
+.commit-name.untracked { color: var(--git-untracked); }
 .commit-row .commit-dir { flex: 1 1 auto; font-size: inherit; }
 .commit-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .commit-tool .commit-form { display: flex; flex-wrap: wrap; align-items: center; flex: 0 0 auto; }
 .commit-form .commit-amend-field { order: 0; width: 100%; }
 .commit-form .commit-message-field { order: 1; width: 100%; }
 .commit-form textarea { min-height: 150px; }
-.commit-form [data-testid="commit-submit"] { order: 2; background: #386fda; border-color: #386fda; color: white; }
+.commit-form [data-testid="commit-submit"] { order: 2; }
 .commit-form .commit-push { order: 3; }
 .commit-form .hint, .commit-form .error { order: 4; width: 100%; }
 
@@ -40,11 +40,11 @@
 .git-diff-editors .cm-editor { background: var(--bg); color: var(--fg); }
 .git-diff-editors .cm-gutters { background: var(--bg); color: var(--muted); border: 0; }
 .git-diff-editors .cm-line { min-height: 1.5em; line-height: 1.5; }
-.git-diff-editors .git-diff-line-modified { background: #263d61; }
-.git-diff-editors .git-diff-line-added { background: #264b35; }
-.git-diff-editors .git-diff-line-removed { background: #423a3c; }
-.git-diff-editors .git-diff-line-empty { background: #27292e; }
-.git-diff-editors .git-diff-intraline { background: #5377ac; }
+.git-diff-editors .git-diff-line-modified { background: var(--diff-mod-surface); }
+.git-diff-editors .git-diff-line-added { background: var(--diff-add-surface); }
+.git-diff-editors .git-diff-line-removed { background: var(--diff-del-surface); }
+.git-diff-editors .git-diff-line-empty { background: var(--diff-empty-surface); }
+.git-diff-editors .git-diff-intraline { background: var(--diff-intraline-surface); }
 
 .git-diff-toolbar .git-diff-mode { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; }
 .git-diff-toolbar .git-diff-mode button { width: auto; height: 22px; padding: 0 8px; border-radius: 0; color: var(--muted); font-size: var(--fs-meta); }
@@ -57,12 +57,12 @@
 .git-diff-unified .cm-editor { height: 100%; background: var(--bg); color: var(--fg); }
 .git-diff-unified .cm-gutters { background: var(--bg); color: var(--muted); border: 0; }
 .git-diff-unified .cm-line { min-height: 1.5em; line-height: 1.5; }
-.git-diff-unified .git-diff-line-added { background: #264b35; }
-.git-diff-unified .git-diff-line-removed { background: #423a3c; }
-.git-diff-unified .git-diff-intraline { background: #5377ac; }
+.git-diff-unified .git-diff-line-added { background: var(--diff-add-surface); }
+.git-diff-unified .git-diff-line-removed { background: var(--diff-del-surface); }
+.git-diff-unified .git-diff-intraline { background: var(--diff-intraline-surface); }
 .git-diff-editors .cm-diff-connectors { width: 10px; min-width: 10px; border-right: 1px solid var(--line); }
 .git-diff-editors .cm-diff-connectors .cm-gutterElement { padding: 0; }
 .cm-diff-connector { width: 10px; height: 100%; min-height: 1.5em; }
-.cm-diff-connector-removed { background: linear-gradient(90deg, #7a3b44 0 50%, transparent 50%); }
-.cm-diff-connector-added { background: linear-gradient(90deg, transparent 0 50%, #2f6b44 50%); }
-.cm-diff-connector-modified { background: #3f5f8f; }
+.cm-diff-connector-removed { background: linear-gradient(90deg, var(--diff-connector-removed) 0 50%, transparent 50%); }
+.cm-diff-connector-added { background: linear-gradient(90deg, transparent 0 50%, var(--diff-connector-added) 50%); }
+.cm-diff-connector-modified { background: var(--diff-connector-modified); }

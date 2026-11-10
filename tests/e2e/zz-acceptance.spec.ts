@@ -278,7 +278,7 @@ test("real P0 journey: restricted, trust, SDKs, evaluation, restore, LSP, build,
     await waitEvaluation(page, 1);
     await expect(page.getByTestId("status-sdk")).toContainText(/Analysis runtime 10\.\d+\.\d+/);
     await expect(page.getByTestId("status-sdk")).toContainText("Project SDK 8.0.408");
-    await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider (macOS)");
+    await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider");
 
     // Evaluated tree: console + library + tests, TargetPath from MSBuild, bin/obj hidden.
     await expect(page.getByTestId("tree-project-OrderDesk.Cli")).toHaveAttribute("data-project-kind", "console");
@@ -982,7 +982,7 @@ test("UI audit: English surface, names, focus, keymap text and local layout at r
     await waitEvaluation(page, 1);
 
     // Documented macOS shortcut labels; Windows is source-inspected only on this machine.
-    await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider (macOS)");
+    await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider");
     await page.getByTestId("bottom-tab-build").click();
     await expect(page.getByTestId("build-action")).toContainText(/Cmd\+F9|Ctrl\+F9/);
     await page.getByTestId("bottom-tab-terminal").click();

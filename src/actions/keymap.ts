@@ -62,14 +62,16 @@ export const editorDefaults: EditorSettings = {
   useTabs: false,
 };
 
+// The profile id is persisted, so it keeps its historical name; the label names the keymap, not the
+// platform it was first written for (#369).
 export const profileOptions: { id: ProfileId; title: string }[] = [
-  { id: "rider-macos", title: "Rider (macOS)" },
+  { id: "rider-macos", title: "Rider" },
   { id: "intellij", title: "IntelliJ" },
   { id: "visual-studio", title: "Visual Studio" },
 ];
 
 export function profileTitle(profile: ProfileId) {
-  return profileOptions.find((option) => option.id === profile)?.title ?? "Rider (macOS)";
+  return profileOptions.find((option) => option.id === profile)?.title ?? "Rider";
 }
 
 export function defaultSettings(): AppSettings {
