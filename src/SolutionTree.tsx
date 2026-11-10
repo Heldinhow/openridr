@@ -3,8 +3,10 @@ import { FileIcon } from "./FileIcon";
 import type { GitStatus } from "./git";
 import { call, type EvaluatedPackageRef, type EvaluationProject, type OutlineProject } from "./host/client";
 import { Icon } from "./Icon";
+import { DependencyGlyph } from "./icons/DependencyGlyph";
 import { ProjectIcon } from "./icons/ProjectIcon";
-import { SYMBOL_LABEL } from "./icons/SymbolMark";
+import { RuntimeGlyph } from "./icons/RuntimeGlyph";
+import { SYMBOL_LABEL } from "./icons/symbolKind";
 import { createListingCache, type ListingEntry } from "./solutionListing";
 import { treeGitStatusMap, mergeIgnored, treeQueryId, type TreeGitStatus } from "./solutionGitStatus";
 import {
@@ -12,7 +14,7 @@ import {
   nestSources, visibleSourceFiles, type DependencyGroup, type SourceNode,
 } from "./solutionNodes";
 import {
-  dedupePackages, fileKind, frameworkRows, packageKey, projectKindOf, symbolKindOf,
+  dedupePackages, fileKind, frameworkRows, packageKey, projectKindOf, projectMeta, symbolKindOf,
   type ProjectKind, type SymbolKind,
 } from "./solutionVisuals";
 import { askTreeQuery } from "./treeQueryRetry";
@@ -195,11 +197,31 @@ export function SolutionTree(p: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.showAll, p.gitRevision, p.workspaceDir, views.length]);
 
-  // Only files the user can see (open project + open folders) are asked for; filter mode keeps the
-  // badges already known and never starts a scan per keystroke.
+  // The filter asks for the symbol kinds of its results, but only once the typing settles: a scan
+  // per keystroke would stat every match on every key.
+  const [settledFilter, setSettledFilter] = useState("");
+  useEffect(() => {
+    if (!filter) {
+      setSettledFilter("");
+      return;
+    }
+    const timer = setTimeout(() => setSettledFilter(filter), 250);
+    return () => clearTimeout(timer);
+  }, [filter]);
+
+  // Only files the user can see (open project + open folders) are asked for; a filter asks for the
+  // files it shows, so the row can spell out the symbol kind it found.
   const visibleSignature = useMemo(() => {
-    if (filter) return "";
     const visible = new Set<string>();
+    if (filter) {
+      if (settledFilter !== filter) return "";
+      for (const view of views) {
+        for (const source of view.sources) {
+          if (source.toLowerCase().endsWith(".cs") && hit(baseOf(source))) visible.add(source);
+        }
+      }
+      return Array.from(visible).sort().join("\n");
+    }
     if (p.showAll) {
       const walk = (dir: string) => {
         for (const entry of listing[dir] ?? []) {
@@ -227,7 +249,7 @@ export function SolutionTree(p: Props) {
       }
     }
     return Array.from(visible).sort().join("\n");
-  }, [filter, p.expanded, p.showAll, views, listing, sourceSet, projectDirs, ancestors]);
+  }, [filter, settledFilter, p.expanded, p.showAll, views, listing, sourceSet, projectDirs, ancestors]);
 
   // Same walk as `visibleSignature`, without the `.cs` filter: the ignore rules apply to every
   // file row the tree is showing. While a filter is active the rows are not the expanded tree, so
@@ -450,6 +472,12 @@ export function SolutionTree(p: Props) {
         testId={`tree-file-${path}`}
         fileKind={kind}
         symbolKind={symbol}
+        suffix={
+          filter && symbol ? (
+            // The accessible name stays the file name: the text repeats the row description.
+            <span className="tree-symbol-kind" aria-hidden="true">{SYMBOL_LABEL[symbol]}</span>
+          ) : undefined
+        }
         current={p.activePath === path}
         selected={p.activePath === path}
         title={path}
@@ -538,6 +566,13 @@ export function SolutionTree(p: Props) {
     if (filter && sources.length === 0 && !hit(view.name)) return null;
     const kind = projectKindOf(view.kind, view.textKind);
     const frameworks = frameworkRows(view.tfms, kind);
+    // The state tag that used to truncate moves into the second layer, where it has the full width.
+    const restore = p.restoreIncomplete(view.path)
+      ? "restore incomplete"
+      : view.evaluated && view.restore !== "restored"
+        ? (view.restore === "unknown" ? "restore unknown" : "partial context")
+        : null;
+    const meta = projectMeta(kind, view.tfms, restore);
     const hasDeps = view.refs.length > 0 || view.packages.length > 0 || frameworks.length > 0;
     // Dependencies, its groups and the leaves name the project they belong to: their menu is the
     // project menu, so no row of the tree is left without one.
@@ -586,6 +621,7 @@ export function SolutionTree(p: Props) {
             p.onSelectProject(view.path);
             p.onMenu(position, projectTarget, row);
           }}
+          meta={meta || undefined}
           suffix={
             <>
               {isAbsolutePath(view.path) && (
@@ -598,10 +634,6 @@ export function SolutionTree(p: Props) {
                 </span>
               )}
               {view.failed && <span className="tag error">error</span>}
-              {view.evaluated && view.restore !== "restored" && (
-                <span className="tag warning">{view.restore === "unknown" ? "restore unknown" : "partial context"}</span>
-              )}
-              {p.restoreIncomplete(view.path) && <span className="tag warning">restore incomplete</span>}
             </>
           }
         />
@@ -614,7 +646,7 @@ export function SolutionTree(p: Props) {
                 <TreeRow
                   level={level + 1}
                   open={p.expanded.has(depsKey(view.path))}
-                  icon={<Icon name="dependencies" className="tint-dependencies" />}
+                  icon={<DependencyGlyph />}
                   name="Dependencies"
                   testId={`tree-deps-${view.name}`}
                   onClick={() => p.onToggle(depsKey(view.path))}
@@ -625,12 +657,12 @@ export function SolutionTree(p: Props) {
                     {groupRow(
                       "frameworks",
                       "Frameworks",
-                      <Icon name="layers" className="tint-framework" />,
+                      <RuntimeGlyph />,
                       frameworks.map((framework) => (
                         <TreeRow
                           key={`fw:${framework}`}
                           level={level + 3}
-                          icon={<Icon name="layers" className="tint-framework" />}
+                          icon={<RuntimeGlyph />}
                           name={framework}
                           testId={`tree-framework-${view.name}-${framework}`}
                           onClick={() => undefined}
@@ -641,12 +673,12 @@ export function SolutionTree(p: Props) {
                     {groupRow(
                       "packages",
                       "Packages",
-                      <Icon name="package" className="tint-package" />,
+                      <Icon name="package" />,
                       view.packages.map((pkg) => (
                         <TreeRow
                           key={`pkg:${packageKey(pkg)}`}
                           level={level + 3}
-                          icon={<Icon name="package" className="tint-package" />}
+                          icon={<Icon name="package" />}
                           name={pkg.name}
                           testId={`tree-package-${view.name}-${pkg.name}`}
                           suffix={
@@ -662,7 +694,7 @@ export function SolutionTree(p: Props) {
                     {groupRow(
                       "projects",
                       "Projects",
-                      <Icon name="solutionFolder" className="tint-solution-folder" />,
+                      <Icon name="solutionFolder" />,
                       view.refs.map((ref) => {
                         const target = views.find((candidate) => candidate.name === ref);
                         const refKind: ProjectKind = target
@@ -706,7 +738,7 @@ export function SolutionTree(p: Props) {
       <TreeRow
         level={0}
         open={rootOpen}
-        icon={<Icon name="solution" className="tint-solution" />}
+        icon={<Icon name="solution" />}
         name={p.workspaceName.replace(/\.(slnx?|csproj)$/i, "")}
         testId="tree-root"
         suffix={<span className="tag tree-count">· {countLabel(views.length, "project")}</span>}

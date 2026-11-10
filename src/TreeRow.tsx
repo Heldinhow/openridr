@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from "react";
 import { Icon } from "./Icon";
+import { FolderIcon } from "./icons/FolderIcon";
 
 /** Viewport position a context menu opens at. Rows compute it for the mouse and the keyboard. */
 export type MenuPosition = { x: number; y: number };
@@ -11,6 +12,8 @@ type Props = {
   /** Omit for folders; the row supplies their folder glyph. */
   icon?: ReactNode;
   name: string;
+  /** Second line under the name, e.g. `console · net8.0 · restore incomplete`. */
+  meta?: ReactNode;
   /** Accessible description read after the name, for information the row only shows as a glyph. */
   description?: string;
   /** Dim text after the name, e.g. "· 2 projects". */
@@ -38,7 +41,7 @@ type Props = {
 };
 
 /** Row indent per level and the left padding of the whole row; the guides mirror both. */
-export const ROW_INDENT = 18;
+export const ROW_INDENT = 16;
 export const ROW_PADDING = 8;
 
 /**
@@ -49,7 +52,7 @@ export const ROW_PADDING = 8;
  * back to "Reload / Share… / Services" (see nativeMenu.ts for the app-wide guard).
  */
 export function TreeRow({
-  level, open, icon, name, description, suffix, selected, current, noIndex, testId, title,
+  level, open, icon, name, meta, description, suffix, selected, current, noIndex, testId, title,
   fileKind, projectKind, projectTfms, symbolKind, symlink, gitStatus, gitLabel, onClick, onMenu, children,
 }: Props) {
   // The description lives outside the row: `aria-describedby` then adds it to the description
@@ -59,7 +62,7 @@ export function TreeRow({
     <>
     <button
       type="button"
-      className={`tree-row sol-row${selected ? " selected" : ""}${noIndex ? " no-index" : ""}`}
+      className={`tree-row sol-row${meta ? " two-line" : ""}${selected ? " selected" : ""}${noIndex ? " no-index" : ""}`}
       style={{ paddingLeft: ROW_PADDING + level * ROW_INDENT }}
       data-level={level}
       data-testid={testId}
@@ -97,28 +100,18 @@ export function TreeRow({
         <span
           key={`guide-${index}`}
           className="tree-guide"
-          style={{ left: ROW_PADDING + index * ROW_INDENT + 6 }}
+          style={{ left: ROW_PADDING + index * ROW_INDENT + 7 }}
           aria-hidden="true"
         />
       ))}
       <span className="tree-icon">
         {symlink && !icon ? (
           // A link with no glyph of its own is drawn as the link: one chain per row.
-          <Icon name="link" className="tint-folder" />
+          <Icon name="link" className="tint-muted" />
         ) : !icon && open !== undefined ? (
           <span className="solution-folder-icon" aria-hidden="true">
-            <Icon name="folder" />
-            {name.toLowerCase() === "config" && <span className="folder-config-badge">↗</span>}
+            <FolderIcon open={open} />
           </span>
-        ) : testId?.startsWith("tree-deps-") && !testId.startsWith("tree-deps-group-") ? (
-          <svg className="dependency-glyph" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M7 5.5 3.6 10M9 5.5l3.4 4.5" stroke="currentColor" strokeWidth="1.3" />
-            <circle cx="8" cy="3.5" r="2" stroke="currentColor" strokeWidth="1.3" />
-            <circle cx="3" cy="12" r="2" stroke="currentColor" strokeWidth="1.3" />
-            <circle cx="13" cy="12" r="2" stroke="currentColor" strokeWidth="1.3" />
-          </svg>
-        ) : testId?.startsWith("tree-framework-") || (testId?.startsWith("tree-deps-group-") && testId.endsWith("-frameworks")) ? (
-          <Icon name="settings" className="framework-glyph" />
         ) : icon}
         {symlink && icon && (
           <span className="symlink-mark" aria-hidden="true">
@@ -126,7 +119,10 @@ export function TreeRow({
           </span>
         )}
       </span>
-      <span className="tree-name">{name}</span>
+      <span className="tree-label">
+        <span className="tree-name">{name}</span>
+        {meta && <span className="tree-meta">{meta}</span>}
+      </span>
       {noIndex && <span className="tag">· no index</span>}
       {gitStatus && (
         <span className="tag git-status" title={gitLabel}>

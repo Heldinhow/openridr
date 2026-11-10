@@ -4622,7 +4622,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         <nav className="side" aria-label="Solution explorer" data-testid="tree">
           <div className="panel-title">
             <span className="explorer-heading">
-              <span className="explorer-title">Solution<Icon name="chevron" /></span>
+              <span className="explorer-title">Solution</span>
               <SolutionToolbar
                 showAll={showAllFiles}
                 searchOpen={treeSearchOpen}

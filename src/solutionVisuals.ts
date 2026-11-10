@@ -19,9 +19,15 @@ export type FileKind =
   | "git"
   | "config"
   | "script"
+  | "powershell"
+  | "batch"
+  | "css"
+  | "html"
+  | "image"
+  | "license"
   | "file";
 
-/** The glyph a row draws; several file kinds share one glyph (e.g. `.sln` and `.csproj`). */
+/** The glyph a row draws; several file kinds share one glyph (e.g. `.sln` and `.resx`). */
 export type FileGlyph =
   | "csharp"
   | "doc"
@@ -36,47 +42,95 @@ export type FileGlyph =
   | "razor"
   | "resource"
   | "config"
-  | "script";
+  | "script"
+  | "powershell"
+  | "batch"
+  | "css"
+  | "html"
+  | "image"
+  | "license"
+  | "file";
 
-/** Glyph per kind. Names come from SPEC-SOLUTION-FILE-ICONS; the component map lives in FileIcon. */
-const GLYPH: Record<FileKind, FileGlyph> = {
-  csharp: "csharp",
-  solution: "doc",
-  project: "project",
-  dotsettings: "xml",
-  file: "doc",
-  props: "xml",
-  json: "json",
-  xml: "xml",
-  razor: "razor",
-  resource: "resource",
-  markdown: "markdown",
-  text: "text",
-  yaml: "yaml",
-  docker: "docker",
-  git: "git",
-  config: "config",
-  script: "script",
+/**
+ * Tint of a glyph: the Seti reference palette, which is a handful of families, not one colour per
+ * type. `muted` is structure (no type information); the values live in styles.css.
+ */
+export type IconToken =
+  | "seti-blue"
+  | "seti-yellow"
+  | "seti-purple"
+  | "seti-green"
+  | "seti-orange"
+  | "git"
+  | "muted";
+
+/**
+ * The derived table: one row per kind, written by hand from the Seti theme
+ * (`vs-seti-icon-theme.json`, vendored font; see THIRD-PARTY-NOTICES.md). The theme JSON itself is
+ * never loaded: the bundle carries only the font and this table.
+ */
+const FILE_TYPES: Record<FileKind, { glyph: FileGlyph; token: IconToken }> = {
+  csharp: { glyph: "csharp", token: "seti-blue" },
+  solution: { glyph: "doc", token: "muted" },
+  project: { glyph: "project", token: "seti-orange" },
+  dotsettings: { glyph: "text", token: "muted" },
+  props: { glyph: "xml", token: "seti-orange" },
+  json: { glyph: "json", token: "seti-yellow" },
+  xml: { glyph: "xml", token: "seti-orange" },
+  razor: { glyph: "razor", token: "seti-blue" },
+  resource: { glyph: "resource", token: "muted" },
+  markdown: { glyph: "markdown", token: "seti-blue" },
+  text: { glyph: "text", token: "muted" },
+  yaml: { glyph: "yaml", token: "seti-purple" },
+  docker: { glyph: "docker", token: "seti-blue" },
+  git: { glyph: "git", token: "git" },
+  config: { glyph: "config", token: "muted" },
+  script: { glyph: "script", token: "seti-green" },
+  powershell: { glyph: "powershell", token: "seti-blue" },
+  batch: { glyph: "batch", token: "seti-blue" },
+  css: { glyph: "css", token: "seti-blue" },
+  html: { glyph: "html", token: "seti-blue" },
+  image: { glyph: "image", token: "seti-purple" },
+  license: { glyph: "license", token: "seti-yellow" },
+  file: { glyph: "file", token: "muted" },
 };
 
 export function fileGlyph(kind: FileKind): FileGlyph {
-  return GLYPH[kind];
+  return FILE_TYPES[kind].glyph;
 }
 
-/** Names beat extensions: `Dockerfile` and `docker-compose.yml` are not generic files. */
-const BY_NAME: Record<string, FileKind> = {
+/** Token that tints a kind's glyph; the value is `--icon-<token>` in styles.css. */
+export function fileToken(kind: FileKind): IconToken {
+  return FILE_TYPES[kind].token;
+}
+
+/**
+ * Whole names beat extensions (`Dockerfile`, `global.json`, `LICENSE`). The theme's `languageIds`
+ * level has no equivalent here: OpenRidr has no language registry, so the extension carries it.
+ */
+const FILE_NAMES: Record<string, FileKind> = {
   dockerfile: "docker",
-  "docker-compose.yml": "docker",
-  "docker-compose.yaml": "docker",
-  "docker-compose.override.yml": "docker",
-  "docker-compose.override.yaml": "docker",
+  "compose.yml": "docker",
+  "compose.yaml": "docker",
+  ".dockerignore": "docker",
   ".gitignore": "git",
   ".gitattributes": "git",
   ".gitmodules": "git",
   ".editorconfig": "config",
+  ".env": "config",
+  "global.json": "json",
+  "appsettings.json": "json",
+  "package.json": "json",
+  "tsconfig.json": "json",
+  "nuget.config": "xml",
+  license: "license",
+  "license.md": "license",
+  "license.txt": "license",
+  copying: "license",
 };
 
-const BY_EXTENSION: Record<string, FileKind> = {
+/** The longest matching suffix wins: `docker-compose.override.yml` before `yml`. */
+const FILE_EXTENSIONS: Record<string, FileKind> = {
   cs: "csharp",
   csx: "csharp",
   sln: "solution",
@@ -90,6 +144,7 @@ const BY_EXTENSION: Record<string, FileKind> = {
   jsonc: "json",
   xml: "xml",
   config: "xml",
+  xaml: "xml",
   razor: "razor",
   cshtml: "razor",
   resx: "resource",
@@ -99,40 +154,52 @@ const BY_EXTENSION: Record<string, FileKind> = {
   mdx: "markdown",
   yml: "yaml",
   yaml: "yaml",
-  editorconfig: "config",
-  gitignore: "git",
-  gitattributes: "git",
-  gitmodules: "git",
-  dotsettings: "dotsettings",
+  "docker-compose.yml": "docker",
+  "docker-compose.yaml": "docker",
+  "docker-compose.override.yml": "docker",
+  "docker-compose.override.yaml": "docker",
+  txt: "text",
   sh: "script",
   bash: "script",
   zsh: "script",
-  ps1: "script",
-  cmd: "script",
-  bat: "script",
-  txt: "text",
+  ps1: "powershell",
+  psm1: "powershell",
+  cmd: "batch",
+  bat: "batch",
+  css: "css",
+  scss: "css",
+  less: "css",
+  html: "html",
+  htm: "html",
+  dotsettings: "dotsettings",
+  "dotsettings.user": "dotsettings",
+  gitattributes: "git",
+  gitmodules: "git",
+  png: "image",
+  jpg: "image",
+  jpeg: "image",
+  gif: "image",
+  webp: "image",
+  bmp: "image",
+  ico: "image",
+  svg: "image",
 };
+
+/** Longest first, so the first suffix that matches is the most specific one. */
+const EXTENSIONS_BY_LENGTH = Object.keys(FILE_EXTENSIONS).sort((a, b) => b.length - a.length);
 
 /** Type of a file row; only the name is read, never the contents. */
 export function fileKind(path: string): FileKind {
   const name = path.split("/").pop() ?? path;
   const lower = name.toLowerCase();
-  // `Dockerfile`, `docker-compose.yml`, `.gitignore`, `.editorconfig`, `App.DotSettings.user`
-  // depend on the whole name, not on an extension.
-  const byName = BY_NAME[lower];
+  const byName = FILE_NAMES[lower];
   if (byName) return byName;
-  if (/^dockerfile(\.[\w.-]+)?$/i.test(name)) return "docker";
-  if (/^docker-compose[.\w-]*\.ya?ml$/i.test(name)) return "docker";
-  if (/\.dotsettings(\.user)?$/i.test(name)) return "dotsettings";
-  if (/^appsettings(\.[\w.-]+)?\.json$/i.test(name)) return "json";
-  if (lower.startsWith(".") && !lower.slice(1).includes(".")) {
-    // Dotfiles: `.editorconfig` has an extension-like suffix; `.env` and `.dockerignore` are names.
-    return BY_EXTENSION[lower.slice(1)] ?? "config";
+  // `Dockerfile.dev` is a Dockerfile; the whole-name table cannot enumerate every suffix.
+  if (lower === "dockerfile" || lower.startsWith("dockerfile.")) return "docker";
+  for (const extension of EXTENSIONS_BY_LENGTH) {
+    if (lower === extension || lower.endsWith(`.${extension}`)) return FILE_EXTENSIONS[extension];
   }
-  const dot = lower.lastIndexOf(".");
-  if (dot < 0) return "file";
-  const ext = lower.slice(dot + 1);
-  return BY_EXTENSION[ext] ?? (ext.endsWith("proj") ? "project" : "file");
+  return "file";
 }
 
 /** A project that MSBuild says is `Exe` but whose text declares the Web SDK is a web project. */
@@ -148,6 +215,18 @@ export function projectKindOf(
   const text = textKind?.toLowerCase() ?? "";
   if (text === "test" || text === "console" || text === "library" || text === "web") return text;
   return "unknown";
+}
+
+/**
+ * Second layer of a project row: `kind · TFM · restore`, only the parts that exist. The kind is
+ * text here because the glyph is `aria-hidden`; the row's accessible name carries it too.
+ */
+export function projectMeta(kind: ProjectKind, tfms: string[], restore: string | null): string {
+  const parts: string[] = [];
+  if (kind !== "unknown") parts.push(kind);
+  if (tfms.length > 0) parts.push(tfms.join(", "));
+  if (restore) parts.push(restore);
+  return parts.join(" · ");
 }
 
 /** Framework row label derived from the TFM only; no version is invented. */
