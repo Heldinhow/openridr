@@ -52,6 +52,9 @@ Fonte única: `:root` em `src/styles.css`. **Nenhum componente inventa valor for
 | Seleção | `--select` / `--select-row` / `--select-row-focus` | `#282828` / `#262626` / `#343434` | seleção de aba, linha da árvore, linha com foco |
 | Erro / aviso / sucesso / info | `--error` `--warning` `--success` `--info` | `#f87171` `#fbbf24` `#34d399` `#60a5fa` | texto e ícone |
 | Sólidos | `--error-solid` `--warning-solid` `--success-solid` `--info-solid` | `#ef4444` `#f59e0b` `#10b981` `#3b82f6` | preenchimento de selo |
+| Diff | `--diff-add-surface` `--diff-del-surface` `--diff-mod-surface` `--diff-empty-surface` `--diff-intraline-surface` | `#2d4a35` `#5a2d33` `#263d61` `#27292e` `#5377ac` | linha adicionada/removida/modificada, linha vazia do split e trecho intraline |
+| Conector do split | `--diff-connector-removed` `--diff-connector-added` `--diff-connector-modified` | `#7a3b44` `#2f6b44` `#3f5f8f` | conector entre as duas colunas do diff (#368) |
+| Status de Git | `--git-modified` `--git-added` `--git-deleted` `--git-untracked` `--git-ignored` `--git-conflicted` | `#82c0f0` `#8ad07d` `#d27d7d` `#eda773` `#b3b3b3` `#f9a1a1` | nome e selo na árvore e no painel Commit |
 
 A paleta é única desde a #350: não há tokens por superfície nem alias em `.workspace-view`. A aba ativa usa `--tab-active-surface` `#252525` com borda `#3a3a3a`. O welcome e o workspace são a mesma tela em estados diferentes e leem os mesmos valores.
 
@@ -113,7 +116,7 @@ fora da escala (1/2/3/6/10 px) ficam crus de propósito, para migrar a escala n�
 | `--control-h` | 32 px | botão, campo, alvo de tool band (a linha da árvore é exceção: 22 px) |
 | — | 28 px | item de menu, linha de log (**proposto** virar `--row-h-menu`) |
 | — | 52 px | toolbar superior |
-| — | 28 px | status bar |
+| — | 32 px | status bar (o alvo de 32 px vale para os controles dela; o separador é uma linha inset, não uma borda) |
 | `--shadow-popover` | `0 16px 40px -18px rgba(0,0,0,.8)` | popover, menu |
 | `--shadow-dialog` | `0 24px 72px -20px rgba(0,0,0,.9)` | diálogo |
 | `--highlight` | `inset 0 1px rgba(255,255,255,.06)` | aresta superior de superfície elevada |

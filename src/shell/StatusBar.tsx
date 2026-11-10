@@ -127,11 +127,8 @@ export function StatusBar({ workspace, snapshot, onSnapshot, sdkSummary, sdk, ev
               >
                 {analysis.action.label}
               </button>
-              {analysis.action.disabledReason && (
-                <span className="status-reason" data-testid="status-analysis-blocked">
-                  {analysis.action.disabledReason}
-                </span>
-              )}
+              {/* The reason a recovery action cannot run stays in the action's title: a long
+                  sentence in the bar is what pushed the readiness summary out (#365). */}
             </>
           )}
         </span>
