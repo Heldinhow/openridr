@@ -699,6 +699,9 @@ impl Host {
         if method == "workspace.symbolKinds" {
             return self.workspace_symbol_kinds(&params);
         }
+        if method == "workspace.containingSolution" {
+            return self.containing_solution(&params);
+        }
         if method == "search.text" {
             return self.search_text(params);
         }
@@ -5966,6 +5969,21 @@ impl Host {
     /// Read-only C# type-kind scan for Solution Explorer badges. No trust, no compile, no LSP.
     /// The workspace root is cloned under the lock; file I/O happens after the lock is released.
     /// `known` carries the mtime the UI cached, so unchanged files are stat'ed but never read.
+    /// Nearest solution (or project) above a named path. The CLI/Finder "open with" hands over a
+    /// file; when it is not a workspace file, the UI offers this instead of a dead end (#373).
+    /// Read-only path resolution, like `workspace.reveal`: no trust gate and no workspace needed.
+    fn containing_solution(&self, params: &Value) -> HostResult<Value> {
+        let raw = required_str(params, "path")?;
+        let path = fs::canonicalize(&raw)
+            .map_err(|_| HostError::new("not_found", format!("Path not found: {raw}")))?;
+        Ok(match containing_workspace(&path) {
+            Some((path, kind)) => {
+                json!({ "path": path.to_string_lossy(), "kind": kind })
+            }
+            None => json!({ "path": null, "kind": null }),
+        })
+    }
+
     fn workspace_symbol_kinds(&self, params: &Value) -> HostResult<Value> {
         self.workspace_symbol_kinds_with(params, |path| fs::read_to_string(path).ok())
     }
@@ -8378,6 +8396,32 @@ fn resolve_directory(dir: &Path) -> HostResult<PathBuf> {
     }
 }
 
+/// Nearest workspace above `path`: a solution first (the whole solution is what the user wants),
+/// then a project when no solution exists anywhere above. Walks up from the file's own directory.
+fn containing_workspace(path: &Path) -> Option<(PathBuf, &'static str)> {
+    let mut project = None;
+    let mut dir = if path.is_dir() {
+        Some(path.to_path_buf())
+    } else {
+        path.parent().map(Path::to_path_buf)
+    };
+    while let Some(current) = dir {
+        let mut solutions = files_with_extension(&current, "sln");
+        solutions.extend(files_with_extension(&current, "slnx"));
+        solutions.sort();
+        if let Some(found) = solutions.into_iter().next() {
+            return Some((found, "solution"));
+        }
+        if project.is_none() {
+            if let Some(found) = files_with_extension(&current, "csproj").into_iter().next() {
+                project = Some(found);
+            }
+        }
+        dir = current.parent().map(Path::to_path_buf);
+    }
+    project.map(|found| (found, "project"))
+}
+
 fn files_with_extension(dir: &Path, extension: &str) -> Vec<PathBuf> {
     let Ok(entries) = fs::read_dir(dir) else {
         return Vec::new();
@@ -9250,6 +9294,70 @@ mod tests {
         assert!(
             touched.is_empty(),
             "the dotnet command must inherit proxy variables, not manage them: {touched:?}"
+        );
+    }
+
+    #[test]
+    fn containing_solution_walks_up_to_the_nearest_workspace() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(temp.path()).unwrap();
+        let solution = root.join("App.sln");
+        fs::write(&solution, "").unwrap();
+        let project = root.join("src/App/App.csproj");
+        fs::create_dir_all(project.parent().unwrap()).unwrap();
+        fs::write(&project, "").unwrap();
+        let source = root.join("src/App/Program.cs");
+        fs::write(&source, "class P {}\n").unwrap();
+
+        // The solution wins over the project next to the file: it is the wider workspace.
+        assert_eq!(
+            containing_workspace(&source),
+            Some((solution.clone(), "solution"))
+        );
+
+        // A project with no solution above it is still a workspace the file belongs to.
+        let loose_root = tempfile::tempdir().unwrap();
+        let loose = fs::canonicalize(loose_root.path()).unwrap();
+        fs::write(loose.join("Loose.csproj"), "").unwrap();
+        let loose_source = loose.join("Code.cs");
+        fs::write(&loose_source, "class C {}\n").unwrap();
+        assert_eq!(
+            containing_workspace(&loose_source),
+            Some((loose.join("Loose.csproj"), "project"))
+        );
+
+        // Nothing above: no action to offer.
+        let orphan = tempfile::tempdir().unwrap();
+        let orphan_file = orphan.path().join("Readme.txt");
+        fs::write(&orphan_file, "").unwrap();
+        assert_eq!(containing_workspace(&orphan_file), None);
+
+        // The dispatch is read-only and needs no workspace or trust.
+        let host = Host::new();
+        let answer = host
+            .dispatch(
+                "workspace.containingSolution",
+                json!({ "path": source.to_string_lossy() }),
+            )
+            .unwrap();
+        assert_eq!(answer["kind"], "solution");
+        assert_eq!(answer["path"], solution.to_string_lossy().as_ref());
+        assert_eq!(
+            host.dispatch(
+                "workspace.containingSolution",
+                json!({ "path": orphan_file.to_string_lossy() }),
+            )
+            .unwrap()["path"],
+            Value::Null
+        );
+        assert_eq!(
+            host.dispatch(
+                "workspace.containingSolution",
+                json!({ "path": "/nope/missing.cs" })
+            )
+            .unwrap_err()
+            .code,
+            "not_found"
         );
     }
 

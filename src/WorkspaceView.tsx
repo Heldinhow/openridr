@@ -24,6 +24,7 @@ import { SolutionToolbar } from "./SolutionToolbar";
 import { SolutionTree, expandableKeys, type TreeTarget } from "./SolutionTree";
 import type { MenuPosition } from "./TreeRow";
 import { ROOT_KEY, baseOf, dirKey, dirOf, folderKey, workspaceRelative } from "./solutionNodes";
+import { workspaceFileTarget } from "./externalOpen";
 import { fileMenuItems, projectMenuItems, solutionFolderMenuItems, solutionMenuItems } from "./solutionMenu";
 import { FindUsagesPanel } from "./FindUsagesPanel";
 import {
@@ -4038,6 +4039,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             onBuildSolution={requestBuildSolution}
             solutionBuildDisabledReason={buildSolutionDisabledReason}
             onCancel={() => void cancelBuild()}
+            onCancelDiscovery={() => void cancelTestDiscovery()}
             disabledReason={buildDisabledReason}
             trusted={trusted}
             onTrust={() => void grantTrust()}
@@ -4073,6 +4075,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               trusted={trusted}
               onTrust={() => void grantTrust()}
               onLaunch={() => void prepareAndDebug()}
+              onCancelDiscovery={() => void cancelTestDiscovery()}
               onSnapshot={onSnapshot}
               onError={(text) => setMessage({ tone: "error", text })}
               onRestart={() => void restartDebug()}
@@ -4208,8 +4211,32 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
     onClick: () => void runEvaluation(),
   };
 
+  /** The error the host gives for a path that is not a workspace, plus the way out of it (#373). */
+  async function openContainingSolution(path: string) {
+    try {
+      const answer = await call<{ path: string | null; kind: string | null }>(
+        "workspace.containingSolution",
+        { path },
+      );
+      if (!answer.path) {
+        setMessage({ tone: "error", text: `No solution or project contains ${path}.` });
+        return;
+      }
+      await openSolution(answer.path);
+    } catch (error) {
+      setMessage({ tone: "error", text: `Could not find the solution for ${path}: ${messageOf(error)}` });
+    }
+  }
+
   async function openSolution(solution: string) {
     if (solution === workspace.path) return;
+    // A code file inside the open workspace is a tab, not a workspace: the CLI and the Finder
+    // hand over files, and refusing them was a dead end (#373).
+    const file = workspaceFileTarget(solution, workspaceDir);
+    if (file) {
+      await openUserFile(file);
+      return;
+    }
     if (dirtyCount > 0) {
       setMessage({ tone: "error", text: "Save or close modified buffers before opening another solution." });
       return;
@@ -4222,7 +4249,14 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         setExternalCandidates({ path: solution, candidates });
         return;
       }
-      setMessage({ tone: "error", text: `Could not open ${solution}: ${messageOf(error)}` });
+      setMessage({
+        tone: "error",
+        text: `Could not open ${solution}: ${messageOf(error)}`,
+        action: {
+          label: "Open the containing solution",
+          onClick: () => void openContainingSolution(solution),
+        },
+      });
     }
   }
 
@@ -4564,18 +4598,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         >
           <Icon name="shield" />
         </button>
-        {["Monitoring", "AI Assistant", "Database"].map((title) => (
-          <button
-            key={title}
-            type="button"
-            className="toolband-button"
-            disabled
-            aria-label={title}
-            title={`${title} is not part of OpenRidr`}
-          >
-            {title[0]}
-          </button>
-        ))}
+        {/* Only the tools that exist live here: a disabled placeholder is not a plan (#371). */}
       </div>
 
       {toolsOpen && (
@@ -5234,7 +5257,13 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
                 <dt>Search Everywhere</dt><dd><kbd>{searchAction.shortcutLabels[0] ?? ""}</kbd> <span className="muted">or Double Shift</span></dd>
                 <dt>Run saved build</dt><dd><kbd>{actionById.get("run.start")?.shortcutLabels[0]}</kbd></dd>
               </dl>
-              <p className="hint">Text editing is always available. Analysis and execution require trust.</p>
+              {/* The hint states this project's mode: a trusted project must not be told that
+                  analysis and execution still need trust (#369). */}
+              <p className="hint">
+                {trusted
+                  ? "This project is trusted: analysis and execution are available."
+                  : "Text editing is always available. Analysis and execution require trust."}
+              </p>
             </div>
           )}
         </section>
