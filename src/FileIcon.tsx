@@ -1,55 +1,60 @@
 import type { ReactNode } from "react";
-import { Icon, type IconName } from "./Icon";
-import {
-  CSharpGlyph, DockerGlyph, DocGlyph, GitGlyph, JsonGlyph, MarkdownGlyph, TextGlyph, YamlGlyph,
-} from "./icons/fileGlyphs";
+import { DocGlyph, TextGlyph } from "./icons/fileGlyphs";
 import { SYMBOL_LABEL } from "./icons/SymbolMark";
-import { ProjectIcon } from "./icons/ProjectIcon";
-import { fileGlyph, fileKind, type FileGlyph, type SymbolKind } from "./solutionVisuals";
+import { fileGlyph, fileKind, fileToken, type FileGlyph, type SymbolKind } from "./solutionVisuals";
 
-/** Vendored SVGs (see THIRD-PARTY-NOTICES); shared elements are immutable, so they live here. */
-const CUSTOM: Partial<Record<FileGlyph, ReactNode>> = {
-  doc: <DocGlyph />,
-  project: <ProjectIcon kind="unknown" />,
-  json: <JsonGlyph />,
-  markdown: <MarkdownGlyph />,
-  docker: <DockerGlyph />,
-  yaml: <YamlGlyph />,
-  text: <TextGlyph />,
-  git: <GitGlyph />,
-};
-
-/** Kinds the bundled Lucide set already draws well. */
-const LUCIDE: Partial<Record<FileGlyph, IconName>> = {
-  xml: "code",
-  razor: "code",
-  resource: "package",
-  config: "settings",
-  script: "terminal",
+/**
+ * Codepoints of the vendored Seti font (`src/assets/seti.woff`), read from the theme's
+ * `iconDefinitions` (`vs-seti-icon-theme.json`). Provenance and license: THIRD-PARTY-NOTICES.md.
+ */
+const SETI: Partial<Record<FileGlyph, string>> = {
+  csharp: "\uE00B",
+  project: "\uE0A5",
+  xml: "\uE0A5",
+  json: "\uE055",
+  razor: "\uE048",
+  html: "\uE048",
+  markdown: "\uE060",
+  yaml: "\uE0A7",
+  docker: "\uE025",
+  git: "\uE034",
+  script: "\uE089",
+  powershell: "\uE074",
+  batch: "\uE0A1",
+  css: "\uE01D",
+  image: "\uE04C",
+  license: "\uE05A",
+  file: "\uE023",
 };
 
 /**
- * Type glyph for a path; color is a token (`--icon-*`) applied by the `tint-*` class.
+ * Vendored @pierre/trees glyphs, kept only where Seti has no drawing: `.sln`, `.resx`,
+ * `.editorconfig` and `.DotSettings`. They are drawn at full strength like the Seti glyphs.
+ */
+const CUSTOM: Partial<Record<FileGlyph, ReactNode>> = {
+  doc: <DocGlyph />,
+  resource: <DocGlyph />,
+  text: <TextGlyph />,
+  config: <TextGlyph />,
+};
+
+/**
+ * Type glyph for a path; the tint is the table's token (`tint-<token>` → `--icon-<token>`).
  *
  * C# symbol kinds remain in the tooltip and row description, not a visual badge.
  */
 export function FileIcon({ path, symbolKind }: { path: string; symbolKind?: SymbolKind }) {
-  const glyph = fileGlyph(fileKind(path));
-  if (glyph === "csharp") {
-    return (
-      <span
-        className="file-icon tint-csharp"
-        data-icon={glyph}
-        aria-hidden="true"
-        title={symbolKind ? `C# ${SYMBOL_LABEL[symbolKind]}` : "C# file"}
-      >
-        <CSharpGlyph />
-      </span>
-    );
-  }
+  const kind = fileKind(path);
+  const glyph = fileGlyph(kind);
+  const character = SETI[glyph];
   return (
-    <span className={`file-icon tint-${glyph}`} data-icon={glyph} aria-hidden="true">
-      {CUSTOM[glyph] ?? <Icon name={LUCIDE[glyph] ?? "file"} />}
+    <span
+      className={`file-icon tint-${fileToken(kind)}`}
+      data-icon={glyph}
+      aria-hidden="true"
+      title={glyph === "csharp" ? (symbolKind ? `C# ${SYMBOL_LABEL[symbolKind]}` : "C# file") : undefined}
+    >
+      {character ? <span className="seti-glyph">{character}</span> : CUSTOM[glyph]}
     </span>
   );
 }

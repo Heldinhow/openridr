@@ -3,6 +3,7 @@ import {
   dedupePackages,
   fileGlyph,
   fileKind,
+  fileToken,
   frameworkName,
   frameworkRows,
   packageKey,
@@ -31,11 +32,15 @@ describe("fileKind", () => {
     expect(fileKind(".gitignore")).toBe("git");
     expect(fileKind(".gitattributes")).toBe("git");
     expect(fileKind("scripts/build.sh")).toBe("script");
-    expect(fileKind("build.ps1")).toBe("script");
+    expect(fileKind("build.ps1")).toBe("powershell");
+    expect(fileKind("run.bat")).toBe("batch");
     expect(fileKind("ci.yml")).toBe("yaml");
     expect(fileKind("ci.yaml")).toBe("yaml");
     expect(fileKind("notes.txt")).toBe("text");
-    expect(fileKind("LICENSE")).toBe("file");
+    expect(fileKind("LICENSE")).toBe("license");
+    expect(fileKind("logo.png")).toBe("image");
+    expect(fileKind("site.css")).toBe("css");
+    expect(fileKind("index.html")).toBe("html");
   });
 
   test("names that are not extensions win over the suffix", () => {
@@ -46,6 +51,18 @@ describe("fileKind", () => {
     expect(fileKind("OrderDesk.sln.DotSettings.user")).toBe("dotsettings");
     expect(fileKind("OrderDesk.sln.DotSettings")).toBe("dotsettings");
     expect(fileKind("pipeline.yaml")).toBe("yaml");
+    expect(fileKind("global.json")).toBe("json");
+    expect(fileKind("license.md")).toBe("license");
+  });
+
+  test("the longest matching suffix wins", () => {
+    // `docker-compose.override.yml` is Docker, even though it ends in `yml`; a plain `pipeline.yml`
+    // is YAML. This is the VS Code rule the table is derived from.
+    expect(fileKind("docker-compose.override.yml")).toBe("docker");
+    expect(fileKind("deploy/pipeline.yml")).toBe("yaml");
+    // A multi-segment suffix beats the last segment alone.
+    expect(fileKind("OrderDesk.sln.DotSettings.user")).toBe("dotsettings");
+    expect(fileKind("Settings.user")).toBe("file");
   });
 
   test("unknown extensions stay neutral and extension matching is case-insensitive", () => {
@@ -53,6 +70,7 @@ describe("fileKind", () => {
     expect(fileKind("Program.CS")).toBe("csharp");
     expect(fileKind("Web.RAZOR")).toBe("razor");
     expect(fileKind("DOCKERFILE")).toBe("docker");
+    expect(fileKind("LICENSE.TXT")).toBe("license");
   });
 });
 
@@ -62,8 +80,8 @@ describe("fileGlyph", () => {
     expect(glyphOf("Program.cs")).toBe("csharp");
     expect(glyphOf("OrderDesk.sln")).toBe("doc");
     expect(glyphOf("App.csproj")).toBe("project");
-    expect(glyphOf("App.sln.DotSettings.user")).toBe("xml");
-    expect(glyphOf("LICENSE")).toBe("doc");
+    expect(glyphOf("App.sln.DotSettings.user")).toBe("text");
+    expect(glyphOf("LICENSE")).toBe("license");
     expect(glyphOf("global.json")).toBe("json");
     expect(glyphOf("README.md")).toBe("markdown");
     expect(glyphOf("Dockerfile")).toBe("docker");
@@ -77,6 +95,31 @@ describe("fileGlyph", () => {
     expect(glyphOf("Strings.resx")).toBe("resource");
     expect(glyphOf(".editorconfig")).toBe("config");
     expect(glyphOf("build.sh")).toBe("script");
+    expect(glyphOf("tool.exe")).toBe("file");
+  });
+
+  test("every kind names a glyph and a token, so a new type cannot render blank", () => {
+    const kinds = [
+      "Program.cs", "App.sln", "App.csproj", "App.sln.DotSettings", "Directory.Build.props",
+      "global.json", "App.xml", "Index.razor", "Strings.resx", "README.md", "notes.txt",
+      "ci.yml", "Dockerfile", ".gitignore", ".editorconfig", "build.sh", "build.ps1", "run.bat",
+      "site.css", "index.html", "logo.png", "LICENSE", "tool.exe",
+    ] as const;
+    for (const path of kinds) {
+      const kind = fileKind(path);
+      expect(fileGlyph(kind)).not.toBeUndefined();
+      expect(fileToken(kind)).not.toBeUndefined();
+    }
+  });
+
+  test("structure and reference-less types are muted, types keep a Seti colour", () => {
+    expect(fileToken(fileKind("Program.cs"))).toBe("seti-blue");
+    expect(fileToken(fileKind("global.json"))).toBe("seti-yellow");
+    expect(fileToken(fileKind("ci.yml"))).toBe("seti-purple");
+    expect(fileToken(fileKind("build.sh"))).toBe("seti-green");
+    expect(fileToken(fileKind("App.xml"))).toBe("seti-orange");
+    expect(fileToken(fileKind("App.sln"))).toBe("muted");
+    expect(fileToken(fileKind("tool.exe"))).toBe("muted");
   });
 });
 

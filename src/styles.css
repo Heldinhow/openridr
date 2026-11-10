@@ -39,6 +39,15 @@
   src: url("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2-variations");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
+/* Seti file glyphs, vendored from the VS Code theme (MIT); provenance in THIRD-PARTY-NOTICES.md.
+   `block` keeps the fallback font from painting a wrong glyph while the 37 KB file loads. */
+@font-face {
+  font-family: "seti";
+  font-style: normal;
+  font-weight: normal;
+  font-display: block;
+  src: url("./assets/seti.woff") format("woff");
+}
 
 /* Tokens follow DESIGN.md (T3 Code structure, OpenRidr blue). Surfaces rise by alpha; 1px lines separate. */
 :root {
@@ -130,12 +139,19 @@
   --sans: "Inter Variable", -apple-system, system-ui, sans-serif;
   --mono: "JetBrains Mono Variable", ui-monospace, Menlo, monospace;
 
-  /* Solution Explorer type colors. Dark values are the shipped theme (Settings has no light
-     token set yet); the light values in the @supports block below are forward-compatible. */
+  /* Solution Explorer type colours: the Seti reference palette, one token per colour family.
+     Structure (folders, Dependencies, Frameworks, Packages) is not a type and uses --muted.
+     Dark values are the shipped theme; the light values in the @supports block are
+     forward-compatible only (the light theme is not distributed). */
+  --icon-seti-blue: #519aba;
+  --icon-seti-yellow: #cbcb41;
+  --icon-seti-purple: #a074c4;
+  --icon-seti-green: #8dc149;
+  --icon-seti-orange: #e37933;
+  --icon-git: #41535b;
   --icon-solution: #7aa7ff;
   --icon-solution-folder: #9db4dd;
   --icon-folder: #9a9a9a;
-  --icon-csharp: #9d6afb;
   --icon-project-console: #7cc0ff;
   --icon-project-library: #8ed39a;
   --icon-project-test: #e0b76e;
@@ -149,21 +165,6 @@
   --icon-symbol-enum: #e5b64b;
   --icon-symbol-record: #c58af2;
   --icon-symbol-struct: #ee9292;
-  /* Solution Explorer glyph colors: the shipped dark values are the T3 Code palette
-     (MIT), which is what the visual reference uses. Light values are T3 Code's too and are
-     forward-compatible only: the light theme is not distributed (see SPEC-SOLUTION-FILE-ICONS). */
-  --icon-doc: #adadb1;
-  --icon-docker: #69b1ff;
-  --icon-git: #d5512f;
-  --icon-json: #ffa359;
-  --icon-xml: #e08a58;
-  --icon-razor: #b48cf0;
-  --icon-resource: #73c7a3;
-  --icon-markdown: #5ecc71;
-  --icon-yaml: #b48cf0;
-  --icon-config: #8fa1a8;
-  --icon-script: #8dc149;
-  --icon-text: #adadb1;
   /* Git status of a tree file row. Brighter than Rider's palette on purpose: the name keeps
      4.5:1 or better over panel, hover, the selected/focused row and the no-index row in the
      shipped dark theme (measurements in docs/evidence/solution-git-status.md). */
@@ -177,10 +178,15 @@
 /* `light-dark()` is used only where the engine supports it; the dark fallback above stays valid. */
 @supports (color: light-dark(#000, #fff)) {
   :root {
+    --icon-seti-blue: light-dark(#498ba7, #519aba);
+    --icon-seti-yellow: light-dark(#b7b73b, #cbcb41);
+    --icon-seti-purple: light-dark(#9068b0, #a074c4);
+    --icon-seti-green: light-dark(#7fae42, #8dc149);
+    --icon-seti-orange: light-dark(#cc6d2e, #e37933);
+    --icon-git: light-dark(#3b4b52, #41535b);
     --icon-solution: light-dark(#1f4f9e, #7aa7ff);
     --icon-solution-folder: light-dark(#3d5680, #9db4dd);
     --icon-folder: light-dark(#5f6368, #9a9a9a);
-    --icon-csharp: light-dark(#693acf, #9d6afb);
     --icon-project-console: light-dark(#12558c, #7cc0ff);
     --icon-project-library: light-dark(#20663a, #8ed39a);
     --icon-project-test: light-dark(#7a4f00, #e0b76e);
@@ -194,18 +200,6 @@
     --icon-symbol-enum: light-dark(#7a5200, #e5b64b);
     --icon-symbol-record: light-dark(#63338f, #c58af2);
     --icon-symbol-struct: light-dark(#8f2f2f, #ee9292);
-    --icon-json: light-dark(#d47628, #ffa359);
-    --icon-xml: light-dark(#8a3f0f, #e08a58);
-    --icon-razor: light-dark(#5b3a9e, #b48cf0);
-    --icon-resource: light-dark(#186a52, #73c7a3);
-    --icon-markdown: light-dark(#199f43, #5ecc71);
-    --icon-yaml: light-dark(#5b3a9e, #b48cf0);
-    --icon-config: light-dark(#465a61, #8fa1a8);
-    --icon-script: light-dark(#3f6b12, #8dc149);
-    --icon-text: light-dark(#84848a, #adadb1);
-    --icon-doc: light-dark(#84848a, #adadb1);
-    --icon-docker: light-dark(#1a85d4, #69b1ff);
-    --icon-git: light-dark(#ff8c5b, #d5512f);
     --git-modified: light-dark(#1f5f9e, #82c0f0);
     --git-added: light-dark(#2f6f24, #8ad07d);
     --git-untracked: light-dark(#8a4a12, #eda773);
@@ -3511,38 +3505,29 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .tree-icon { flex: 0 0 16px; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; }
 .file-icon { display: inline-flex; align-items: center; justify-content: center; position: relative; }
 .file-glyph { width: 16px; height: 16px; display: block; }
-/* Two-tone vendored glyphs draw the page body at reduced strength and the fold at full.
-   SPEC-SOLUTION-FILE-ICONS: icons are non-text graphics (WCAG 1.4.11), so the body has to keep 3:1.
-   0.75 keeps doc/text/docker at 3.37:1 or better on every row background (panel, hover, raised,
-   the focused `--select` row and the amber no-index row) in the shipped dark theme; 0.5 measured
-   2.95:1 on the panel. Measurements: docs/evidence/solution-file-icons.md. */
-.file-glyph .glyph-page { opacity: 0.75; }
-/* A light theme would need the body at full strength: the lighter tokens lose too much contrast when
-   blended with white (#84848a at 0.75 is 2.34:1, at 1.0 it is 3.72:1). Not shipped today. */
-@supports (color: light-dark(#000, #fff)) {
-  @media (prefers-color-scheme: light) {
-    .file-glyph .glyph-page { opacity: 1; }
-  }
+/* Seti glyphs are a font: a 20px em whose drawing is ~12px, centred in the 16px icon slot — the
+   same 150% of a 13px label that VS Code renders. `line-height: 1` puts the baseline at the bottom
+   of the em box, so the ink lands in the middle of the slot (measured; see evidence). */
+.seti-glyph {
+  font-family: "seti";
+  font-size: 20px;
+  line-height: 1;
+  font-weight: normal;
+  font-style: normal;
+  display: block;
 }
+.folder-glyph { width: 16px; height: 16px; display: block; }
+/* Type colour is one of the Seti families; no component carries a hex. */
+:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-seti-blue { color: var(--icon-seti-blue); }
+:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-seti-yellow { color: var(--icon-seti-yellow); }
+:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-seti-purple { color: var(--icon-seti-purple); }
+:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-seti-green { color: var(--icon-seti-green); }
+:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-seti-orange { color: var(--icon-seti-orange); }
+:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-git { color: var(--icon-git); }
+:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-muted { color: var(--muted); }
 :is(.sol-row .tree-icon, .tabbar .tab-label) .tint-solution { color: var(--icon-solution); }
 :is(.sol-row .tree-icon, .tabbar .tab-label) .tint-solution-folder { color: var(--icon-solution-folder); }
 :is(.sol-row .tree-icon, .tabbar .tab-label) .tint-folder { color: var(--icon-folder); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-csharp { color: var(--icon-csharp); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-doc { color: var(--icon-doc); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-docker { color: var(--icon-docker); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-git { color: var(--icon-git); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-json { color: var(--icon-json); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-xml { color: var(--icon-xml); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-razor { color: var(--icon-razor); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-resource { color: var(--icon-resource); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-markdown { color: var(--icon-markdown); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-text { color: var(--icon-text); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-yaml { color: var(--icon-yaml); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-config { color: var(--icon-config); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-script { color: var(--icon-script); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-project { color: var(--icon-doc); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-dotsettings { color: var(--icon-doc); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-file { color: var(--icon-text); }
 :is(.sol-row .tree-icon, .tabbar .tab-label) .tint-dependencies { color: var(--icon-dependencies); }
 :is(.sol-row .tree-icon, .tabbar .tab-label) .tint-package { color: var(--icon-package); }
 :is(.sol-row .tree-icon, .tabbar .tab-label) .tint-framework { color: var(--icon-framework); }

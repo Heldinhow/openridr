@@ -129,27 +129,24 @@ SOFTWARE.
 
 ## File tree glyphs from `@pierre/trees` 1.0.0-beta.6 — Apache-2.0
 
-Seven SVG symbols were copied from the npm package `@pierre/trees@1.0.0-beta.6` (license field
+Two SVG symbols were copied from the npm package `@pierre/trees@1.0.0-beta.6` (license field
 `apache-2.0`), file `dist/builtInIcons.js` (the package's compiled icon sprite), into
 `src/icons/fileGlyphs.tsx`:
 
 | Symbol in the package | Component in OpenRidr |
 |---|---|
 | `file-tree-icon-file` | `DocGlyph` |
-| `file-tree-builtin-json` | `JsonGlyph` |
-| `file-tree-builtin-markdown` | `MarkdownGlyph` |
-| `file-tree-builtin-docker` | `DockerGlyph` |
-| `file-tree-builtin-yml` | `YamlGlyph` |
 | `file-tree-builtin-text` | `TextGlyph` |
-| `file-tree-builtin-git` | `GitGlyph` |
 
-**Modified.** The seven glyphs are **not** verbatim: the `<symbol>`/sprite wrapper is dropped, the
-package's `class="bg"` / `class="fg"` hits became one local class (`glyph-page`) that keeps the
-same half-strength page body, the original inline `opacity` attributes became that class (its value is
-the only visual change: 0.65 instead of 0.5, for WCAG 1.4.11 contrast — see
-`docs/evidence/solution-file-icons.md`), the hardcoded colors became `currentColor` so the row's
-`tint-*` class supplies the token, and the file names/JSX differ. The path data is unchanged.
-`@pierre/trees` is **not** a dependency of OpenRidr; only these seven symbols are vendored.
+They are the only file glyphs the Seti theme has no drawing for: `.sln` and `.resx` use `DocGlyph`,
+`.editorconfig` and `.DotSettings` use `TextGlyph`.
+
+**Modified.** The two glyphs are **not** verbatim: the `<symbol>`/sprite wrapper is dropped, the
+package's `class="bg"` / `class="fg"` hits became one local class (`glyph-page`) on the page body,
+the original inline `opacity` attributes were dropped (the body is drawn at full strength, like the
+Seti glyphs, so one contrast rule covers every row), the hardcoded colors became `currentColor` so
+the row's `tint-*` class supplies the token, and the file names/JSX differ. The path data is
+unchanged. `@pierre/trees` is **not** a dependency of OpenRidr; only these two symbols are vendored.
 
 ### NOTICE of `@pierre/trees` 1.0.0-beta.6
 
@@ -192,21 +189,53 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-## Simple Icons `c-sharp` — CC0 1.0
+## Seti icon theme (`microsoft/vscode`) — MIT
 
-`src/icons/fileGlyphs.tsx` (`CSharpGlyph`) contains the Simple Icons `c-sharp` mark
-(https://github.com/simple-icons/simple-icons, CC0 1.0 Universal), taken verbatim from the icon sprite the
-T3 Code file tree ships. It is the hexagonal C# logo used as the `.cs` file icon. Simple Icons asks for
-attribution but does not require it; this notice and the link above are the attribution. Microsoft, C#
-and .NET are trademarks of Microsoft Corporation; OpenRidr is not affiliated with Microsoft.
+The file glyphs of the Solution Explorer come from the **Seti** icon theme that ships with VS Code.
+`src/assets/seti.woff` is the theme's font, copied **unmodified** from the VS Code repository:
+
+| Field | Value |
+|---|---|
+| Source | `microsoft/vscode`, tag `1.145.2`, path `extensions/theme-seti/icons/seti.woff` |
+| Size | 37,284 bytes |
+| SHA-256 | `b127762058f89b37b08d76185e3b0558f5c28859e39a3840a27cb28b9739d6e2` |
+| Font origin | `jesseweed/seti-ui`, commit `2d6c5e68b4ded73c92dac291845ee44e1182d511` (the `version` field of the theme's `vs-seti-icon-theme.json`) |
+| License | MIT (VS Code and `jesseweed/seti-ui`) |
+
+**Derived table.** `src/solutionVisuals.ts` (`FILE_TYPES`, `FILE_NAMES`, `FILE_EXTENSIONS`) is written
+by hand from the theme's `vs-seti-icon-theme.json` at the same tag: the codepoints in
+`src/FileIcon.tsx` are its `iconDefinitions[*].fontCharacter`, and the colour families in
+`src/styles.css` (`--icon-seti-*`) are its `fontColor` values. The theme JSON itself is **not**
+vendored or loaded at runtime, and no glyph is modified: the font bytes are the upstream file.
+
+Copyright (c) 2015 - present Microsoft Corporation
+Copyright (c) 2014 Jesse Weed
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ## T3 Code (`pingdotgg/t3code`) — MIT
 
-Two things were adapted from the T3 Code repository (MIT): the file-name/extension → icon resolution
-logic in `src/solutionVisuals.ts` (`BY_NAME`, `Dockerfile`/`docker-compose`/`DotSettings`/`appsettings`
-rules) and the per-kind color pairs in `src/styles.css` (`--icon-csharp`, `--icon-json`,
-`--icon-markdown`, `--icon-docker`, `--icon-doc`, `--icon-git`, dark and light). No component, stylesheet or
-asset of the T3 Code app is copied.
+One thing was adapted from the T3 Code repository (MIT): the project and structure token values in
+`src/styles.css` (`--icon-solution`, `--icon-solution-folder`, `--icon-project-*`,
+`--icon-dependencies`, `--icon-package`, `--icon-framework`, dark and light). The file-type palette and
+the file glyphs now come from the Seti theme above. No component, stylesheet or asset of the T3 Code
+app is copied.
 
 Copyright (c) 2026 T3 Tools Inc.
 

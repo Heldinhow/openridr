@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from "react";
 import { Icon } from "./Icon";
+import { FolderIcon } from "./icons/FolderIcon";
 
 /** Viewport position a context menu opens at. Rows compute it for the mouse and the keyboard. */
 export type MenuPosition = { x: number; y: number };
@@ -107,7 +108,7 @@ export function TreeRow({
           <Icon name="link" className="tint-folder" />
         ) : !icon && open !== undefined ? (
           <span className="solution-folder-icon" aria-hidden="true">
-            <Icon name="folder" />
+            <FolderIcon open={open} />
             {name.toLowerCase() === "config" && <span className="folder-config-badge">↗</span>}
           </span>
         ) : testId?.startsWith("tree-deps-") && !testId.startsWith("tree-deps-group-") ? (

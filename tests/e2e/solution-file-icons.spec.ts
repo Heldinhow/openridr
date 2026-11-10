@@ -43,10 +43,13 @@ test("a C# row exposes its symbol kind to assistive tech without changing the na
   await expect(row).toHaveAccessibleName(/Order\.cs$/);
   await expect(row.locator("[data-icon]")).toHaveAttribute("aria-hidden", "true");
   await expect(row.locator(".symbol-mark")).toHaveCount(0);
-  // The C# mark is a drawn vector in the C# token, not font-rendered text.
-  await expect(row.locator("[data-icon] text")).toHaveCount(0);
-  await expect(row.locator("[data-icon] svg path")).toHaveCount(1);
-  await expect(row.locator("[data-icon]")).toHaveCSS("color", "rgb(157, 106, 251)");
+  // The C# glyph is one character of the vendored Seti font, not a drawn vector or a badge.
+  await expect(row.locator("[data-icon] .seti-glyph")).toHaveCount(1);
+  await expect(row.locator("[data-icon] svg")).toHaveCount(0);
+  const family = await row.locator("[data-icon] .seti-glyph").evaluate((el) => getComputedStyle(el).fontFamily);
+  expect(family).toContain("seti");
+  // Seti's `_c-sharp` blue family.
+  await expect(row.locator("[data-icon]")).toHaveCSS("color", "rgb(81, 154, 186)");
 });
 
 test("project rows draw their kind as a glyph in the kind color", async ({ page }) => {
@@ -86,13 +89,22 @@ test("file kinds map to the reference glyphs", async ({ page }) => {
     ["tree-file-global.json", "json"],
     ["tree-file-Dockerfile", "docker"],
     ["tree-file-docker-compose.yml", "docker"],
-    ["tree-file-OrderDesk.sln.DotSettings.user", "xml"],
+    ["tree-file-OrderDesk.sln.DotSettings.user", "text"],
     ["tree-file-src/OrderDesk.Core/Order.cs", "csharp"],
+    ["tree-file-LICENSE", "license"],
   ]) {
     await expect(glyph(testId)).toHaveAttribute("data-icon", icon);
+  }
+  // The Seti-drawn kinds are font characters; only the four kinds Seti has no drawing for are SVG.
+  for (const testId of ["tree-file-README.md", "tree-file-appsettings.json", "tree-file-Dockerfile", "tree-file-src/OrderDesk.Core/Order.cs"]) {
+    await expect(glyph(testId).locator(".seti-glyph")).toHaveCount(1);
+    await expect(glyph(testId).locator("svg")).toHaveCount(0);
+  }
+  for (const testId of ["tree-file-OrderDesk.sln.DotSettings.user"]) {
+    await expect(glyph(testId).locator(".seti-glyph")).toHaveCount(0);
     await expect(glyph(testId).locator("svg")).toHaveCount(1);
   }
-  // The C# glyph is the vendored mark, not a Lucide icon or a symbol badge.
+  // The C# glyph is the Seti character, not a Lucide icon or a symbol badge.
   await expect(glyph("tree-file-src/OrderDesk.Core/Order.cs").locator(".icon")).toHaveCount(0);
   // One glyph per row: a file never stacks two type icons.
   await expect(page.getByTestId("tree-file-README.md").locator("[data-icon]")).toHaveCount(1);
@@ -103,7 +115,7 @@ test("file kinds map to the reference glyphs", async ({ page }) => {
   await shot(page, "depois-glyphs");
 });
 
-test("folders have outline icons and an indent guide per ancestor", async ({ page }) => {
+test("folders have a filled glyph with open and closed states, and an indent guide per ancestor", async ({ page }) => {
   const root = tempCopy();
   fs.mkdirSync(path.join(root, ".idea"), { recursive: true });
   fs.mkdirSync(path.join(root, "src/OrderDesk.Core/bin"), { recursive: true });
@@ -117,6 +129,17 @@ test("folders have outline icons and an indent guide per ancestor", async ({ pag
   await expect(page.getByTestId("tree-dir-.idea").locator(".tree-icon svg")).toHaveCount(1);
   await expect(page.getByTestId("tree-dir-.idea").locator("svg")).toHaveCount(2);
   await expect(page.getByTestId("tree-dir-src/OrderDesk.Core/bin").locator("[data-icon]")).toHaveCount(0);
+  // Open and closed folders are two different drawings, and the folder name never changes the glyph.
+  const folder = (testId: string) => page.getByTestId(testId).locator("[data-folder]");
+  await expect(folder("tree-dir-.idea")).toHaveAttribute("data-folder", "closed");
+  await expect(folder("tree-dir-src/OrderDesk.Core/bin")).toHaveAttribute("data-folder", "closed");
+  const closedPath = await folder("tree-dir-.idea").locator("path").first().getAttribute("d");
+  const otherClosedPath = await folder("tree-dir-src/OrderDesk.Core/bin").locator("path").first().getAttribute("d");
+  expect(closedPath).toBe(otherClosedPath);
+  await page.getByTestId("tree-dir-.idea").click();
+  await expect(folder("tree-dir-.idea")).toHaveAttribute("data-folder", "open");
+  const openPath = await folder("tree-dir-.idea").locator("path").first().getAttribute("d");
+  expect(openPath).not.toBe(closedPath);
   const dirName = await page.getByTestId("tree-dir-.idea").locator(".tree-name").boundingBox();
   const fileName = await page.getByTestId("tree-file-README.md").locator(".tree-name").boundingBox();
   expect(Math.abs(dirName!.x - fileName!.x)).toBeLessThan(2);
@@ -132,7 +155,7 @@ test("folders have outline icons and an indent guide per ancestor", async ({ pag
 test("the two-tone document body keeps WCAG 1.4.11 contrast on every row background", async ({ page }) => {
   await open(page, tempCopy());
   await page.getByTestId("tree-show-all").click();
-  const row = page.getByTestId("tree-file-LICENSE");
+  const row = page.getByTestId("tree-file-OrderDesk.sln.DotSettings.user");
   await expect(row).toBeVisible();
   // Everything comes from the shipped CSS: the glyph token, the body opacity and the row backgrounds.
   const ratios = await row.evaluate((el) => {
