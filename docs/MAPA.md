@@ -55,6 +55,7 @@ Use este mapa antes de `grep`/`ls` em `src/` ou `crates/`. Os arquivos grandes e
 | `tools.rs`, `nuget.rs`, `git.rs`, `search.rs` | instalação de ferramentas, NuGet, Git, busca de arquivos/texto |
 | `http.rs`, `netguard.rs`, `system_proxy.rs` | **única** porta de entrada do cliente HTTP do host (rota por proxy do ambiente e do macOS, guarda de endereço, downloads com inatividade); nenhum outro módulo constrói `ureq::AgentBuilder` |
 | `trusted.rs`, `recent.rs`, `settings.rs`, `fsutil.rs`, `logbuf.rs`, `error.rs` | estado persistido no app home, logs limitados, erros |
+| `shell_env.rs` | ambiente do shell de login do macOS: aberto pelo Finder/Dock, o app mescla `~/.zshrc`/`~/.zprofile` no processo antes de qualquer subprocesso (#362) |
 
 Estado do app: `~/Library/Application Support/OpenRidr` (`OPENRIDR_HOME` troca; nos E2E é isolado).
 

@@ -24,6 +24,7 @@ mod scope;
 pub mod sdk;
 mod search;
 mod settings;
+pub mod shell_env;
 mod system_proxy;
 mod terminal;
 #[path = "test_discovery.rs"]

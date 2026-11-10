@@ -99,6 +99,7 @@ e as antigas na ordem em que entraram — nunca reordenar nem reescrever entrada
 
 Numeração de tickets nas pastas históricas **reinicia por pasta** (`tickets/01` ≠ `tickets-mvp/01`): cite sempre a pasta. Ticket novo é GitHub issue: cite pelo número (`#58`).
 | Ícones da Solution Explorer: Material Icon Theme no lugar do Seti (#360) | — (issue #360) | #360 (GitHub) | — | [evidence/solution-file-icons-material.md](evidence/solution-file-icons-material.md), `evidence/solution-file-icons-material/*.png` |
+| Ambiente do shell de login no macOS (#362): aberto pelo Finder, o app herda `~/.zshrc` antes do restore | — (issue #362) | #362 (GitHub) | — | [evidence/macos-shell-env.md](evidence/macos-shell-env.md) |
 
 ## Histórico (não use como estado atual)
 
