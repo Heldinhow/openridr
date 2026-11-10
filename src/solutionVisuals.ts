@@ -1,5 +1,5 @@
 // Pure mapping from paths/project kinds to the visual language of the Solution tree.
-// The drawings are the Material Icon Theme SVGs in `src/assets/`; this module only names the
+// The drawings are the Material Icon Theme SVGs in `public/`; this module only names the
 // icon file, never a hex value and never a path into the bundle.
 export type SymbolKind = "class" | "interface" | "enum" | "record" | "struct";
 export type ProjectKind = "console" | "library" | "test" | "web" | "unknown";
@@ -30,7 +30,7 @@ export type FileKind =
 
 /**
  * The icon a file row draws, named after the Material Icon Theme SVG it comes from
- * (`src/assets/file-icons/<name>.svg`). Several file kinds share one icon (e.g. `.sln` and `.resx`),
+ * (`public/file-icons/<name>.svg`). Several file kinds share one icon (e.g. `.sln` and `.resx`),
  * and one kind can draw more than one icon (`.json` and `package.json`).
  * Provenance, commit and license: THIRD-PARTY-NOTICES.md.
  */
@@ -68,7 +68,7 @@ export type FileIconName =
 
 /**
  * The folder drawing, named after the Material Icon Theme SVG it comes from
- * (`src/assets/folder-icons/<name>.svg` and `<name>-open.svg`).
+ * (`public/folder-icons/<name>.svg` and `<name>-open.svg`).
  */
 export type FolderIconName =
   | "folder"

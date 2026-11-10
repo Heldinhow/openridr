@@ -180,9 +180,13 @@ shell serve. A instância foi encerrada (`kill` no PID próprio; `pgrep -lx open
 
 ## Capturas
 
-- `depois-*.png` — Playwright em modo web, 1440×900, **DPR 1**.
-- `2x/depois-*.png` — a mesma árvore com `OPENRIDR_FILE_ICONS_DPR=2`, **DPR 2** (árvore de 560×1616).
-- Sem captura do app Tauri (motivo acima).
+- **Antes:** `docs/evidence/solution-file-icons-seti/depois-glyphs-arvore.png` e
+  `depois-pastas-e-guia-arvore.png` — a árvore com o Seti, capturada no #359 no mesmo viewport
+  (1440×900, DPR 1) e com o mesmo fixture. Não foram regeradas: são a evidência do estado anterior.
+- **Depois, 1×:** `depois-*.png` — Playwright em modo web, 1440×900, DPR 1.
+- **Depois, 2×:** `2x/depois-*.png` — a mesma árvore com `OPENRIDR_FILE_ICONS_DPR=2`, DPR 2
+  (a árvore sai em 560×1616).
+- **App Tauri:** sem captura (motivo na seção acima).
 
 **Não verificado:** macOS/WKWebView. O alvo verificado do produto é macOS ARM64 e esta sessão rodou
 em Linux arm64; o WKWebView não foi exercitado com os SVGs novos. O caminho de asset é o mesmo
