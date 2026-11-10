@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   dedupePackages,
-  fileGlyph,
+  fileIcon,
   fileKind,
-  fileToken,
+  folderIcon,
   frameworkName,
   frameworkRows,
   packageKey,
@@ -75,52 +75,142 @@ describe("fileKind", () => {
   });
 });
 
-describe("fileGlyph", () => {
-  test("maps every kind to the glyph the row draws", () => {
-    const glyphOf = (path: string) => fileGlyph(fileKind(path));
-    expect(glyphOf("Program.cs")).toBe("csharp");
-    expect(glyphOf("OrderDesk.sln")).toBe("doc");
-    expect(glyphOf("App.csproj")).toBe("project");
-    expect(glyphOf("App.sln.DotSettings.user")).toBe("text");
-    expect(glyphOf("LICENSE")).toBe("license");
-    expect(glyphOf("global.json")).toBe("json");
-    expect(glyphOf("README.md")).toBe("markdown");
-    expect(glyphOf("Dockerfile")).toBe("docker");
-    expect(glyphOf("docker-compose.yml")).toBe("docker");
-    expect(glyphOf("ci.yml")).toBe("yaml");
-    expect(glyphOf("notes.txt")).toBe("text");
-    expect(glyphOf(".gitignore")).toBe("git");
-    expect(glyphOf("App.xml")).toBe("xml");
-    expect(glyphOf("Directory.Build.props")).toBe("xml");
-    expect(glyphOf("Index.razor")).toBe("razor");
-    expect(glyphOf("Strings.resx")).toBe("resource");
-    expect(glyphOf(".editorconfig")).toBe("config");
-    expect(glyphOf("build.sh")).toBe("script");
-    expect(glyphOf("tool.exe")).toBe("file");
+describe("fileIcon", () => {
+  test("the theme's answer for every case the tree renders", () => {
+    const cases: [string, string][] = [
+      // C# and the solution structure
+      ["Program.cs", "csharp"],
+      ["Script.csx", "csharp"],
+      ["OrderDesk.sln", "visualstudio"],
+      ["OrderDesk.slnx", "visualstudio"],
+      ["App.csproj", "visualstudio"],
+      ["App.fsproj", "fsharp"],
+      ["App.vbproj", "xml"],
+      ["Directory.Build.props", "settings"],
+      ["Directory.Build.targets", "xml"],
+      ["Pages/Index.razor", "razor"],
+      ["Views/Home.cshtml", "razor"],
+      // JSON and the names the theme singles out
+      ["appsettings.json", "json"],
+      ["appsettings.Development.json", "json"],
+      ["global.json", "json"],
+      ["launchSettings.json", "json"],
+      ["data.jsonc", "json"],
+      ["package.json", "nodejs"],
+      ["tsconfig.json", "tsconfig"],
+      // XML, config, resources
+      ["App.xml", "xml"],
+      ["App.config", "settings"],
+      ["nuget.config", "nuget"],
+      ["Strings.resx", "xml"],
+      // Documents
+      ["notes.md", "markdown"],
+      ["notes.markdown", "markdown"],
+      ["README.md", "readme"],
+      ["page.mdx", "mdx"],
+      ["notes.txt", "document"],
+      ["LICENSE", "license"],
+      ["LICENSE.md", "license"],
+      ["LICENSE.txt", "license"],
+      ["COPYING", "license"],
+      // Data, CI and dotfiles
+      ["ci.yml", "yaml"],
+      ["ci.yaml", "yaml"],
+      [".editorconfig", "editorconfig"],
+      [".gitignore", "git"],
+      [".gitattributes", "git"],
+      [".gitmodules", "git"],
+      [".env", "tune"],
+      // Containers and scripts
+      ["Dockerfile", "docker"],
+      ["docker/Dockerfile.dev", "docker"],
+      ["docker-compose.yml", "docker"],
+      ["docker-compose.override.yaml", "docker"],
+      [".dockerignore", "docker"],
+      ["scripts/build.sh", "console"],
+      ["run.bash", "console"],
+      ["run.zsh", "console"],
+      ["run.bat", "console"],
+      ["build.cmd", "console"],
+      ["build.ps1", "powershell"],
+      ["build.psm1", "powershell"],
+      // Web and assets
+      ["site.css", "css"],
+      ["style.scss", "sass"],
+      ["less.less", "less"],
+      ["index.html", "html"],
+      ["index.htm", "html"],
+      ["App.xaml", "xaml"],
+      ["logo.svg", "svg"],
+      ["logo.png", "image"],
+      ["photo.jpg", "image"],
+      ["photo.jpeg", "image"],
+      ["anim.gif", "image"],
+      ["pic.webp", "image"],
+      ["pic.bmp", "image"],
+      ["icon.ico", "image"],
+      // ReSharper settings: the theme only knows the solution-scoped names
+      ["OrderDesk.sln.DotSettings", "settings"],
+      ["OrderDesk.sln.DotSettings.user", "settings"],
+      ["App.DotSettings", "file"],
+      ["App.DotSettings.user", "file"],
+      // Not in the theme: the generic drawing
+      ["Strings.resources", "file"],
+      ["tool.exe", "file"],
+    ];
+    for (const [path, icon] of cases) expect(`${path}: ${fileIcon(path)}`).toBe(`${path}: ${icon}`);
   });
 
-  test("every kind names a glyph and a token, so a new type cannot render blank", () => {
-    const kinds = [
-      "Program.cs", "App.sln", "App.csproj", "App.sln.DotSettings", "Directory.Build.props",
-      "global.json", "App.xml", "Index.razor", "Strings.resx", "README.md", "notes.txt",
-      "ci.yml", "Dockerfile", ".gitignore", ".editorconfig", "build.sh", "build.ps1", "run.bat",
-      "site.css", "index.html", "logo.png", "LICENSE", "tool.exe",
-    ] as const;
-    for (const path of kinds) {
-      const kind = fileKind(path);
-      expect(fileGlyph(kind)).not.toBeUndefined();
-      expect(fileToken(kind)).not.toBeUndefined();
-    }
+  test("the whole name beats the extension, and the longest extension beats the shorter one", () => {
+    // `.config` alone is settings, `.json` alone is json, `.md` alone is markdown.
+    expect(fileIcon("nuget.config")).toBe("nuget");
+    expect(fileIcon("package.json")).toBe("nodejs");
+    expect(fileIcon("README.md")).toBe("readme");
+    // `.dotsettings` alone is not in the theme; `sln.dotsettings` is.
+    expect(fileIcon("OrderDesk.sln.DotSettings")).toBe("settings");
+    expect(fileIcon("App.DotSettings")).toBe("file");
   });
 
-  test("structure and reference-less types are muted, types keep a Seti colour", () => {
-    expect(fileToken(fileKind("Program.cs"))).toBe("seti-blue");
-    expect(fileToken(fileKind("global.json"))).toBe("seti-yellow");
-    expect(fileToken(fileKind("ci.yml"))).toBe("seti-purple");
-    expect(fileToken(fileKind("build.sh"))).toBe("seti-green");
-    expect(fileToken(fileKind("App.xml"))).toBe("seti-orange");
-    expect(fileToken(fileKind("App.sln"))).toBe("muted");
-    expect(fileToken(fileKind("tool.exe"))).toBe("muted");
+  test("the kind and the drawing are separate: one kind can draw two icons", () => {
+    expect(fileKind("global.json")).toBe("json");
+    expect(fileKind("package.json")).toBe("json");
+    expect(fileIcon("global.json")).toBe("json");
+    expect(fileIcon("package.json")).toBe("nodejs");
+    // `.sln` and `.csproj` are two kinds and one drawing, exactly like the theme.
+    expect(fileKind("OrderDesk.sln")).not.toBe(fileKind("App.csproj"));
+    expect(fileIcon("OrderDesk.sln")).toBe(fileIcon("App.csproj"));
+  });
+});
+
+describe("folderIcon", () => {
+  test("the theme's answer for every folder name the tree meets", () => {
+    const cases: [string, string][] = [
+      ["src", "folder-src"],
+      ["Source", "folder-src"],
+      ["test", "folder-test"],
+      ["tests", "folder-test"],
+      ["docs", "folder-docs"],
+      ["Properties", "folder-config"],
+      ["wwwroot", "folder-public"],
+      ["bin", "folder-dist"],
+      [".github", "folder-github"],
+      [".vscode", "folder-vscode"],
+      ["scripts", "folder-scripts"],
+      ["assets", "folder-resource"],
+      ["Controllers", "folder-controller"],
+      ["Models", "folder-class"],
+      ["Views", "folder-views"],
+      ["Services", "folder-controller"],
+      ["Migrations", "folder-migrations"],
+    ];
+    for (const [name, icon] of cases) expect(`${name}: ${folderIcon(name)}`).toBe(`${name}: ${icon}`);
+  });
+
+  test("a name the theme does not map gets the generic folder", () => {
+    // `obj` is the one folder a .NET solution has that the theme has no drawing for.
+    expect(folderIcon("obj")).toBe("folder");
+    expect(folderIcon("OrderDesk.Core")).toBe("folder");
+    expect(folderIcon("")).toBe("folder");
   });
 });
 

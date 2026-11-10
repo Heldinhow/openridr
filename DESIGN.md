@@ -164,7 +164,9 @@ fora da escala (1/2/3/6/10 px) ficam crus de propósito, para migrar a escala n�
 ### Árvore
 
 - Linha de 22 px com ícone de 16 px, recuo de 18 px por nível, seleção por preenchimento (nunca preenchimento + negrito ao mesmo tempo).
-- Tipo é carregado por glifo tingido, não por chip extra.
+- Tipo é carregado pelo desenho do **Material Icon Theme**, não por chip extra e não por cor de token:
+  o SVG traz o próprio `fill` e nenhum estado da linha o tinge. Pasta também tem desenho, escolhido
+  pelo nome dela, em duas variantes (fechada e aberta).
 - Cabeçalho e faixa de avaliação ficam fixos; só a árvore rola.
 - Metadado de projeto em segunda camada (nome em cima; `kind · TFM · restore` embaixo).
 

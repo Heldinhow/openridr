@@ -11,7 +11,7 @@ Use este mapa antes de `grep`/`ls` em `src/` ou `crates/`. Os arquivos grandes e
 | o wrapper TS de um método | `grep -n 'build.start' src/host/client.ts` (tipos do snapshot também estão ali) |
 | um atalho/ação | `src/actions/keymap.ts` (teclas) e `src/actions/registry.ts` (ações); atalho que o menu nativo do macOS possui: `src/actions/reservedShortcuts.ts` + `src-tauri/src/main.rs` (`default_menu`) |
 | um termo do domínio | [GLOSSARY.md](../GLOSSARY.md) |
-| a cor/ícone de um projeto ou arquivo | `src/solutionVisuals.ts` (tipo e glifo) e `--icon-*` em `src/styles.css` (cor) |
+| o ícone de um projeto ou arquivo | `src/solutionVisuals.ts` (`fileIcon`/`folderIcon`: nome → SVG do tema) e `src/icons/iconAssets.ts` (URL); os SVGs vivem em `public/file-icons/` e `public/folder-icons/` |
 | uma decisão ("por quê?") | `grep -n '^## ' docs/decisions.md \| grep -i <tema>`; entradas "Substituída" já vêm marcadas |
 | como um ticket foi feito | `grep -n '^## ' docs/implementation-notes.md \| grep -i <tema>` |
 | o spec de uma feature | tabela "Feature → docs" em [README.md](README.md) |
@@ -26,7 +26,7 @@ Use este mapa antes de `grep`/`ls` em `src/` ou `crates/`. Os arquivos grandes e
 | **`WorkspaceView.tsx`** (~5.200 linhas) | **um único componente** que monta o workspace: abas, editor, painéis, diálogos, atalhos globais. Começa em `export function WorkspaceView`. Antes dele só há helpers puros. Fluxos já extraídos: `useExecutionFlow.ts`, `useEvaluationFlow.ts`, `useRunConfigs.ts` |
 | **`CodeEditor.tsx`** (~1.200) | CodeMirror: gutter, breakpoints, marcas de diagnóstico, completion, rename |
 | `SolutionTree.tsx`, `TreeRow.tsx`, `solutionNodes.ts`, `solutionMenu.ts`, `solutionListing.ts` | Solution Explorer (modelo dos nós, menu de contexto; `TreeRow` é o único dono do `preventDefault` e do teclado `Shift+F10`; `solutionListing` é o cache de um nível da listagem "Show all files", com epoch e retry; `treeQueryRetry` é a repetição com limite das consultas de marcador da árvore) |
-| `solutionVisuals.ts`, `FileIcon.tsx`, `icons/` | tipo visual de projeto/arquivo/símbolo (ícone + token `--icon-*`); glifos vendorizados em `icons/fileGlyphs.tsx` (licenças em `THIRD-PARTY-NOTICES.md`); cores em `styles.css` |
+| `solutionVisuals.ts`, `FileIcon.tsx`, `icons/` | tipo visual de projeto/arquivo/símbolo (`fileKind`, `fileIcon`, `folderIcon`) e os componentes que desenham o SVG do **Material Icon Theme** (`FileIcon`, `FolderIcon`, `ProjectIcon`, `NugetGlyph`); os arquivos ficam em `public/file-icons/` e `public/folder-icons/` (licença e commit em `THIRD-PARTY-NOTICES.md`) |
 | `shell/` | tool windows (faixas), barra de status, modo Restricted/Trusted |
 | `actions/` | keymap, registro de ações, Search Everywhere (`FindAction`), diálogo de Keymap |
 | `useExecutionFlow.ts`, `executionGates.ts`, `executionCommands.ts` | Build/Run/Debug: fluxo, gates (por que está desabilitado) e comandos |

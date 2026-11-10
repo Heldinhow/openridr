@@ -107,10 +107,10 @@ export function TreeRow({
       <span className="tree-icon">
         {symlink && !icon ? (
           // A link with no glyph of its own is drawn as the link: one chain per row.
-          <Icon name="link" className="tint-muted" />
+          <Icon name="link" />
         ) : !icon && open !== undefined ? (
           <span className="solution-folder-icon" aria-hidden="true">
-            <FolderIcon open={open} />
+            <FolderIcon name={name} open={open} />
           </span>
         ) : icon}
         {symlink && icon && (
