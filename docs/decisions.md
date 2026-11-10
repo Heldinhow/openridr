@@ -2082,3 +2082,25 @@ O `.cs` volta ao hexágono `C#` do Simple Icons (CC0, do sprite do T3 Code) na c
 ## 2026-11-10 — Paleta única no app inteiro (#350)
 
 A paleta aprovada no workspace (#349) deixa de ser escopada e vira o `:root` do app: `--bg` `#090909`, `--panel` `#101010`, `--raised` `#1b1b1b`, `--chrome` `#050505`, seleção neutra e aba ativa `#252525`. Saem os tokens `--workspace-*` e o alias em `.workspace-view`; welcome, setup, trust, menus, diálogos, configurações e painéis passam a ler os mesmos valores. `.chrome` e `.toolbar` usam `--chrome` e `.menu-content` usa `--raised`, como os demais popovers. A decisão substitui a exceção registrada em `DESIGN.md` para a primeira fatia; o resto do sistema (tipografia, escala, raios, foco, semântica de estado) não muda. Evidência em [evidence/t3-surfaces-350.md](evidence/t3-surfaces-350.md).
+
+## 2026-11-10 — Ícones da Solution Explorer: a tabela de tipos vira dado, com a precedência do VS Code
+
+- **A decisão.** O mapeamento arquivo → **File kind** deixa de ser um `switch` com 15 casos e passa a ser uma tabela declarativa com três níveis, na ordem de precedência que o VS Code usa no tema de ícones: **nome de arquivo** (`Dockerfile`, `global.json`, `.gitignore`) vence **extensão** (o sufixo mais longo ganha: `docker-compose.override.yml` antes de `yml`), que vence o **genérico**. O resolvedor continua puro e testável sem DOM; o par `fileKind`/`fileGlyph` continua separado, porque o tipo é informação e o glifo é vocabulário visual.
+- **Por que a precedência do VS Code.** É a única parte do mecanismo do VS Code que vale copiar sem copiar os assets: `fileNames` > `fileExtensions` > `languageIds` > default, resolvido por especificidade de CSS em `fileIconThemeData.ts`. O OpenRidr não tem registro de linguagem (o VS Code mapeia `.cs` por `languageIds.csharp`, não por extensão), então o nível de linguagem não existe aqui e a extensão carrega esse papel.
+- **O que não entra.** Nada de carregar JSON de tema em runtime, nada de tema selecionável pelo usuário, nada de `hidesExplorerArrows`. O app tem um tema fixo; a tabela é código, revisada em PR como o resto.
+- **Contrato preservado.** `data-file-kind` e `data-icon` continuam existindo e só ganham valores novos; nenhum valor existente é renomeado ou removido.
+- **Pendência declarada.** A origem dos glifos e das cores de referência (Seti vendorizado, MIT) é dependência nova e aguarda aprovação do Helder; esta entrada fixa o mecanismo, que é o mesmo para qualquer origem.
+
+## 2026-11-10 — Pasta ganha ícone aberto/fechado; o tipo do símbolo continua no selo
+
+- **Pastas.** Toda pasta da árvore passa a mostrar dois desenhos, aberta e fechada, desenhados neste repositório (nenhum asset novo para isso). O nome da pasta não muda o ícone: é o que o VS Code faz — o tema Seti não tem ícone de pasta nenhum e quem desenha é o codicon genérico `folder`/`folder-opened`. Ícone por nome (`src`, `tests`, `bin`, `obj`) é do Material Icon Theme e fica fora.
+- **O que isso substitui.** A D3 de [SPEC-SOLUTION-FILE-ICONS](SPEC-SOLUTION-FILE-ICONS.md) dizia "pasta é chevron e nome, nada mais"; o texto já estava defasado, porque desde `c626fc2` a linha de pasta renderiza um `folder` do Lucide (sem variante aberta/fechada). A decisão agora é explícita: ícone existe, é genérico e tem estado.
+- **`.cs`.** O **Symbol kind** continua visível na árvore pelo selo de canto (letra por tipo, cor por tipo, `aria-describedby` fora do botão), como a D2 da mesma spec fixou. Trocar o glifo base do C# não remove o selo: o tipo do símbolo é informação que o VS Code só mostra no Outline, e aqui ele já está pago e testado.
+- **Consequência.** `TreeRow` deixa de decidir o glifo da pasta por conta própria; o estado aberto/fechado vem do mesmo lugar que o chevron.
+
+## 2026-11-10 — Cor de tipo: a paleta de referência passa pelo piso de 3:1, e `--icon-*` continua a fonte única
+
+- **A decisão.** As cores de **File glyph** seguem a paleta da referência (Seti), com uma exceção por cor: qualquer valor que não alcance **3:1** contra a pior superfície em que a linha aparece é clareado até alcançar. Medido: `_git` `#41535b` dá 2,0:1 sobre `--bg` `#090909`, e `_npm` idem — os dois reprovam; o resto da paleta .NET passa.
+- **Por que o piso.** Ícone é gráfico não textual (WCAG 1.4.11), e o repo já trata isso como teste, não como tabela em doc: o piso vale sobre `--panel`, hover, `--raised`, a linha `--select` focada e o âmbar de `no index`. Uma cor de referência que reprova ali é ajustada, não aceita.
+- **Onde a cor mora.** Nenhum componente ganha hex: a tabela nomeia o token, `src/styles.css` guarda o valor, e o teste de contraste lê os dois. É a regra que o `DESIGN.md` já declara ("cores de tipo são dados, não tema").
+- **Pendência declarada.** "Paleta da referência = Seti" depende da aprovação de dependência; a política (piso medido, token único, teste lendo a tabela) vale para qualquer origem de glifo.
