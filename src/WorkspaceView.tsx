@@ -5232,9 +5232,6 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               <p className="muted">Open a file from the solution explorer to start editing.</p>
               <dl className="shortcut-list">
                 <dt>Search Everywhere</dt><dd><kbd>{searchAction.shortcutLabels[0] ?? ""}</kbd> <span className="muted">or Double Shift</span></dd>
-                <dt>Save file</dt><dd><kbd>{actionById.get("file.save")?.shortcutLabels[0]}</kbd></dd>
-                <dt>Go to definition</dt><dd><kbd>{actionById.get("code.goToDeclaration")?.shortcutLabels[0]}</kbd></dd>
-                <dt>Rename symbol</dt><dd><kbd>{actionById.get("code.rename")?.shortcutLabels[0]}</kbd></dd>
                 <dt>Run saved build</dt><dd><kbd>{actionById.get("run.start")?.shortcutLabels[0]}</kbd></dd>
               </dl>
               <p className="hint">Text editing is always available. Analysis and execution require trust.</p>

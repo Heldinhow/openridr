@@ -145,9 +145,13 @@ export function ProjectsView({ active, platform, recent, busy, rowErrors, runtim
         />
       )}
       <p className="welcome-keys muted" data-testid="welcome-keys">
-        <span><kbd>↑</kbd> <kbd>↓</kbd> select</span>
-        <span><kbd>Enter</kbd> open</span>
-        <span><kbd>/</kbd> search</span>
+        {!empty && (
+          <>
+            <span><kbd>↑</kbd> <kbd>↓</kbd> select</span>
+            <span><kbd>Enter</kbd> open</span>
+            <span><kbd>/</kbd> search</span>
+          </>
+        )}
         {platform && <span><kbd>{openShortcutLabel(platform)}</kbd> open project</span>}
       </p>
     </>

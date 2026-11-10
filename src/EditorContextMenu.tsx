@@ -81,6 +81,7 @@ export function EditorContextMenu({
           data-testid={`${itemPrefix}-${item.id}`}
           disabled={Boolean(item.disabledReason)}
           title={item.disabledReason ?? item.label}
+          aria-description={item.disabledReason ?? undefined}
           onMouseEnter={() => !nested && setOpenSub(sub ? item.id : null)}
           onKeyDown={(event) => {
             if (sub && event.key === "ArrowRight") {
@@ -108,9 +109,6 @@ export function EditorContextMenu({
           {sub && <span className="context-menu-shortcut" aria-hidden="true">›</span>}
           {item.shortcut && !item.disabledReason && !sub && (
             <span className="context-menu-shortcut">{item.shortcut}</span>
-          )}
-          {item.disabledReason && !compact && (
-            <span className="context-menu-reason">{item.disabledReason}</span>
           )}
         </button>
         {sub && openSub === item.id && (

@@ -2802,7 +2802,6 @@ mark.search-hit {
 .editor-context-menu button:disabled { color: var(--muted); opacity: 0.68; cursor: default; }
 .context-menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .context-menu-shortcut { color: var(--muted); font-size: var(--fs-meta); }
-.context-menu-reason { grid-column: 1 / -1; color: var(--warning); font-size: var(--fs-meta); white-space: normal; }
 .context-menu-separator { margin: var(--sp-1) 0; border-top: 1px solid var(--line); }
 
 .find-usages-groups { display: grid; gap: var(--sp-2); margin: 6px 0; }
@@ -2980,7 +2979,6 @@ label.run-config-field > :not(span:first-child):not(input):not(select):not(texta
 /* Rider popup menus. */
 .editor-context-menu { background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-xl); padding: var(--sp-1); box-shadow: var(--shadow-popover); }
 .editor-context-menu button { border-radius: var(--r-md); font-size: var(--fs-label); }
-.context-menu-reason { color: var(--muted); }
 .search-dialog, .find-action { background: var(--chrome); }
 
 /* Run / Debug tool windows. */
@@ -3425,7 +3423,6 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 .editor-context-menu button:not(:disabled):hover, .editor-context-menu button:not(:disabled):focus-visible { background: var(--accent-surface-strong); }
 .editor-context-menu button:disabled { opacity: 1; color: var(--disabled); }
 .context-menu-shortcut { font-family: var(--mono); font-size: var(--fs-meta); }
-.context-menu-reason { color: var(--muted); font-size: var(--fs-meta); }
 .context-menu-separator { border-top-color: var(--line-internal); }
 .editor-popup { border-top: 1px solid var(--line); background: var(--panel); }
 .popup-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
