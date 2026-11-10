@@ -6,6 +6,8 @@ import { host } from "./environment";
 
 // Rider-style tree glyphs and rounded selection. Works on a temp copy of the fixture.
 const fixture = path.resolve(process.cwd(), "fixtures/OrderDesk");
+/** The keymap's `primary` is Cmd on macOS and Ctrl elsewhere; the host reports the real platform. */
+const PRIMARY = process.platform === "darwin" ? "Meta" : "Control";
 test.use({ viewport: { width: 1440, height: 900 } });
 
 function tempCopy() {
@@ -237,6 +239,40 @@ test("Dependencies and Frameworks draw their own glyphs, not a gear", async ({ p
   await expect(framework.locator(".runtime-glyph")).toHaveCount(1);
   // The caller's icon is what the row draws: TreeRow no longer substitutes a settings gear.
   await expect(framework.locator(".icon-settings")).toHaveCount(0);
+});
+
+test("the same file keeps its glyph in the tree, the tab, Find in Files and Search Everywhere", async ({ page }) => {
+  await open(page, tempCopy());
+  const file = "src/OrderDesk.Core/Order.cs";
+  const treeIcon = page.getByTestId(`tree-file-${file}`).locator("[data-icon]");
+  await expect(treeIcon).toHaveAttribute("data-icon", "csharp");
+
+  await page.getByTestId(`tree-file-${file}`).click();
+  const tabIcon = page.getByTestId(`tab-${file}`).locator("[data-icon]");
+  await expect(tabIcon).toHaveAttribute("data-icon", "csharp");
+  // One component, one token: the computed colour is the same in both surfaces.
+  await expect(tabIcon).toHaveCSS("color", "rgb(81, 154, 186)");
+  await expect(treeIcon).toHaveCSS("color", "rgb(81, 154, 186)");
+
+  await page.getByTestId("editor").click();
+  await page.keyboard.press(`${PRIMARY}+Shift+F`);
+  await page.getByTestId("find-in-files-input").fill("Order");
+  const result = page
+    .locator('[data-testid^="find-in-files-item-"]')
+    .filter({ hasText: file })
+    .first();
+  await expect(result.locator("[data-icon]")).toHaveAttribute("data-icon", "csharp");
+  await expect(result.locator("[data-icon]")).toHaveCSS("color", "rgb(81, 154, 186)");
+  await page.keyboard.press("Escape");
+
+  await page.getByTestId("editor").click();
+  await page.keyboard.press("Shift");
+  await page.keyboard.press("Shift");
+  await page.getByTestId("search-tab-files").click();
+  await page.getByTestId("find-action-input").fill("Order.cs");
+  const hit = page.locator('[data-testid^="search-item-"]').filter({ hasText: file }).first();
+  await expect(hit.locator("[data-icon]")).toHaveAttribute("data-icon", "csharp");
+  await shot(page, "depois-superficies");
 });
 
 test("the current row has a rounded selection fill", async ({ page }) => {

@@ -3496,13 +3496,13 @@ mark.search-hit { background: rgba(84, 138, 247, 0.28); color: inherit; }
 }
 .folder-glyph, .runtime-glyph { width: 16px; height: 16px; display: block; }
 /* Type colour is one of the Seti families; no component carries a hex. */
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-seti-blue { color: var(--icon-seti-blue); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-seti-yellow { color: var(--icon-seti-yellow); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-seti-purple { color: var(--icon-seti-purple); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-seti-green { color: var(--icon-seti-green); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-seti-orange { color: var(--icon-seti-orange); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-git { color: var(--icon-git); }
-:is(.sol-row .tree-icon, .tabbar .tab-label) .tint-muted { color: var(--muted); }
+:is(.sol-row .tree-icon, .tabbar .tab-label, .commit-file, .action-row) .tint-seti-blue { color: var(--icon-seti-blue); }
+:is(.sol-row .tree-icon, .tabbar .tab-label, .commit-file, .action-row) .tint-seti-yellow { color: var(--icon-seti-yellow); }
+:is(.sol-row .tree-icon, .tabbar .tab-label, .commit-file, .action-row) .tint-seti-purple { color: var(--icon-seti-purple); }
+:is(.sol-row .tree-icon, .tabbar .tab-label, .commit-file, .action-row) .tint-seti-green { color: var(--icon-seti-green); }
+:is(.sol-row .tree-icon, .tabbar .tab-label, .commit-file, .action-row) .tint-seti-orange { color: var(--icon-seti-orange); }
+:is(.sol-row .tree-icon, .tabbar .tab-label, .commit-file, .action-row) .tint-git { color: var(--icon-git); }
+:is(.sol-row .tree-icon, .tabbar .tab-label, .commit-file, .action-row) .tint-muted { color: var(--muted); }
 .sol-row .tree-icon .project-icon.project-console { color: var(--icon-project-console); }
 .sol-row .tree-icon .project-icon.project-library { color: var(--icon-project-library); }
 .sol-row .tree-icon .project-icon.project-test { color: var(--icon-project-test); }
