@@ -25,4 +25,4 @@ tauri-plugin-updater = "2.14.1"
 # Approved dependency (issue #319, Helder 2026-11-09): the XDG portal file chooser answers on the
 # connection that called it, so a one-shot `gdbus` loses the reply. Already transitive through
 # tauri-plugin-single-instance; this makes it direct so the shell can own the dialog.
-zbus = "5.19.0"
+zbus = "6.2.1"
