@@ -65,6 +65,6 @@ Detalhes e limites: [evidence/release-alpha11.md](evidence/release-alpha11.md).
 
 ## Notas de licença
 
-O app inclui netcoredbg, runtime .NET, csharp-ls, Roslyn/dbgshim, Lucide, Material Design Icons,
-glifos `@pierre/trees` e Simple Icons, e fontes Inter e JetBrains Mono. Licenças e atribuições
-completas estão em `Contents/Resources/THIRD-PARTY-NOTICES.md`.
+O app inclui netcoredbg, runtime .NET, csharp-ls, Roslyn/dbgshim, Lucide, os SVGs do Material Icon
+Theme, e fontes Inter e JetBrains Mono. Licenças e atribuições completas estão em
+`Contents/Resources/THIRD-PARTY-NOTICES.md`.

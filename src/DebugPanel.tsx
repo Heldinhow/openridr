@@ -3,6 +3,7 @@ import { DebugEvaluate } from "./DebugEvaluate";
 import { DebugVariable } from "./DebugVariable";
 import { Icon } from "./Icon";
 import { ToolDownloadStatus } from "./ToolDownloadStatus";
+import { isDiscoveryGateReason } from "./executionGates";
 import { useState } from "react";
 import {
   call,
@@ -18,6 +19,8 @@ type Props = {
   trusted: boolean;
   onTrust: () => void;
   onLaunch: () => void;
+  /** The same `tests.cancel` the Tests panel calls; shown next to the discovery gate reason. */
+  onCancelDiscovery: () => void;
   onSnapshot: (snapshot: Snapshot) => void;
   onError: (message: string) => void;
   /** Opens a frame's source at its 1-based DAP line in the editor. */
@@ -49,6 +52,7 @@ export function DebugPanel({
   trusted,
   onTrust,
   onLaunch,
+  onCancelDiscovery,
   onSnapshot,
   onError,
   onOpenFrame,
@@ -204,6 +208,19 @@ export function DebugPanel({
       {disabledReason && !active && (
         <p className="muted" data-testid="dap-disabled-reason" title={disabledReason}>
           {disabledReason}
+          {isDiscoveryGateReason(disabledReason) && (
+            <>
+              {" "}
+              <button
+                type="button"
+                data-testid="dap-cancel-discovery"
+                onClick={onCancelDiscovery}
+                title="Requests termination of the test discovery process group; Debug is re-evaluated when it ends."
+              >
+                Cancel discovery
+              </button>
+            </>
+          )}
           {!trusted && (
             <>
               {" "}

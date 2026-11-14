@@ -470,12 +470,12 @@ test("restricted mode and a non-repository explain themselves and every git meth
   await openTrusted(page, path.join(plain, "Plain.csproj"));
   const noRepoGit = page.getByTestId("toolbar-branch");
   await expect(noRepoGit).toBeDisabled();
-  await expect(noRepoGit).toHaveAccessibleName("Not a git repository");
-  await expect(noRepoGit).toHaveAttribute("title", "Not a git repository");
+  await expect(noRepoGit).toHaveAccessibleName("Not a git repository. Run git init in the workspace folder to use Git here.");
+  await expect(noRepoGit).toHaveAttribute("title", "Not a git repository. Run git init in the workspace folder to use Git here.");
   await page.getByTestId("toolband-commit").click();
-  await expect(page.getByTestId("commit-disabled-reason")).toHaveText("Not a git repository");
+  await expect(page.getByTestId("commit-disabled-reason")).toHaveText("Not a git repository. Run git init in the workspace folder to use Git here.");
   await page.getByTestId("bottom-tab-git").click();
-  await expect(page.getByTestId("git-log-disabled-reason")).toHaveText("Not a git repository");
+  await expect(page.getByTestId("git-log-disabled-reason")).toHaveText("Not a git repository. Run git init in the workspace folder to use Git here.");
   const status = await (await hostCall(page, "git.status")).json();
   expect(status.ok).toBe(true);
   expect(status.data.state).toBe("not_a_repository");

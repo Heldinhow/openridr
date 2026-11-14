@@ -24,6 +24,7 @@ import { SolutionToolbar } from "./SolutionToolbar";
 import { SolutionTree, expandableKeys, type TreeTarget } from "./SolutionTree";
 import type { MenuPosition } from "./TreeRow";
 import { ROOT_KEY, baseOf, dirKey, dirOf, folderKey, workspaceRelative } from "./solutionNodes";
+import { workspaceFileTarget } from "./externalOpen";
 import { fileMenuItems, projectMenuItems, solutionFolderMenuItems, solutionMenuItems } from "./solutionMenu";
 import { FindUsagesPanel } from "./FindUsagesPanel";
 import {
@@ -4038,6 +4039,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             onBuildSolution={requestBuildSolution}
             solutionBuildDisabledReason={buildSolutionDisabledReason}
             onCancel={() => void cancelBuild()}
+            onCancelDiscovery={() => void cancelTestDiscovery()}
             disabledReason={buildDisabledReason}
             trusted={trusted}
             onTrust={() => void grantTrust()}
@@ -4059,6 +4061,8 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             editedAt={editedAt}
             onNavigate={(path, position) => void navigateTo(path, position)}
             onOpen={(path) => void openUserFile(path)}
+            onRestartAnalysis={() => void startAnalysis()}
+            restartAnalysisReason={trusted ? lspStartBlocker(snapshot) : "Trust the workspace to restart analysis."}
           />
         );
       case "debug":
@@ -4071,6 +4075,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               trusted={trusted}
               onTrust={() => void grantTrust()}
               onLaunch={() => void prepareAndDebug()}
+              onCancelDiscovery={() => void cancelTestDiscovery()}
               onSnapshot={onSnapshot}
               onError={(text) => setMessage({ tone: "error", text })}
               onRestart={() => void restartDebug()}
@@ -4202,11 +4207,41 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
       : evaluationBusy
         ? "Wait for the current evaluation to finish."
         : null,
+    shortReason: !evaluationAvailable ? "Resolve the project SDK first." : null,
     onClick: () => void runEvaluation(),
   };
 
+  /** The error the host gives for a path that is not a workspace, plus the way out of it (#373). */
+  async function openContainingSolution(path: string) {
+    try {
+      const answer = await call<{ path: string | null; kind: string | null }>(
+        "workspace.containingSolution",
+        { path },
+      );
+      if (!answer.path) {
+        setMessage({ tone: "error", text: `No solution or project contains ${path}.` });
+        return;
+      }
+      if (answer.path === workspace.path) {
+        // Inside the open workspace and still refused: the file is not one the editor can show.
+        setMessage({ tone: "error", text: `${path} is inside the open workspace but is not a text file the editor can show.` });
+        return;
+      }
+      await openSolution(answer.path);
+    } catch (error) {
+      setMessage({ tone: "error", text: `Could not find the solution for ${path}: ${messageOf(error)}` });
+    }
+  }
+
   async function openSolution(solution: string) {
     if (solution === workspace.path) return;
+    // A code file inside the open workspace is a tab, not a workspace: the CLI and the Finder
+    // hand over files, and refusing them was a dead end (#373).
+    const file = workspaceFileTarget(solution, workspaceDir);
+    if (file) {
+      await openUserFile(file);
+      return;
+    }
     if (dirtyCount > 0) {
       setMessage({ tone: "error", text: "Save or close modified buffers before opening another solution." });
       return;
@@ -4219,7 +4254,14 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         setExternalCandidates({ path: solution, candidates });
         return;
       }
-      setMessage({ tone: "error", text: `Could not open ${solution}: ${messageOf(error)}` });
+      setMessage({
+        tone: "error",
+        text: `Could not open ${solution}: ${messageOf(error)}`,
+        action: {
+          label: "Open the containing solution",
+          onClick: () => void openContainingSolution(solution),
+        },
+      });
     }
   }
 
@@ -4561,18 +4603,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         >
           <Icon name="shield" />
         </button>
-        {["Monitoring", "AI Assistant", "Database"].map((title) => (
-          <button
-            key={title}
-            type="button"
-            className="toolband-button"
-            disabled
-            aria-label={title}
-            title={`${title} is not part of OpenRidr`}
-          >
-            {title[0]}
-          </button>
-        ))}
+        {/* Only the tools that exist live here: a disabled placeholder is not a plan (#371). */}
       </div>
 
       {toolsOpen && (
@@ -4619,7 +4650,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
         <nav className="side" aria-label="Solution explorer" data-testid="tree">
           <div className="panel-title">
             <span className="explorer-heading">
-              <span className="explorer-title">Solution<Icon name="chevron" /></span>
+              <span className="explorer-title">Solution</span>
               <SolutionToolbar
                 showAll={showAllFiles}
                 searchOpen={treeSearchOpen}
@@ -4685,23 +4716,31 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
             </div>
           )}
 
-          {evaluation.staleReason && (
+          {evaluationBusy ? (
+            <div className="notice eval-running" role="status" data-testid="eval-running">
+              Finishing restore and evaluating projects…
+            </div>
+          ) : evaluation.staleReason ? (
             <div className="notice warning eval-stale" role="status" data-testid="eval-stale">
               <strong>Evaluation stale.</strong> {evaluation.staleReason}{" "}
               {hasEarlierEvaluation
                 ? "Values shown are from the previous evaluation and are not current."
-                : "Nothing is current yet; Re-evaluate to produce a current model."}
+                : "Nothing is current yet."}
               <div className="actions">
                 <button
                   data-testid="eval-stale-run"
-                  disabled={!evaluationAvailable || evaluationBusy}
+                  disabled={evaluationRun.disabledReason !== null}
+                  title={evaluationRun.disabledReason ?? undefined}
                   onClick={() => void runEvaluation()}
                 >
                   Re-evaluate
                 </button>
+                {evaluationRun.disabledReason && (
+                  <span className="muted" data-testid="eval-stale-blocked">{evaluationRun.disabledReason}</span>
+                )}
               </div>
             </div>
-          )}
+          ) : null}
 
           <SolutionTree
             workspaceName={workspace.name}
@@ -5221,12 +5260,15 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
               <p className="muted">Open a file from the solution explorer to start editing.</p>
               <dl className="shortcut-list">
                 <dt>Search Everywhere</dt><dd><kbd>{searchAction.shortcutLabels[0] ?? ""}</kbd> <span className="muted">or Double Shift</span></dd>
-                <dt>Save file</dt><dd><kbd>{actionById.get("file.save")?.shortcutLabels[0]}</kbd></dd>
-                <dt>Go to definition</dt><dd><kbd>{actionById.get("code.goToDeclaration")?.shortcutLabels[0]}</kbd></dd>
-                <dt>Rename symbol</dt><dd><kbd>{actionById.get("code.rename")?.shortcutLabels[0]}</kbd></dd>
                 <dt>Run saved build</dt><dd><kbd>{actionById.get("run.start")?.shortcutLabels[0]}</kbd></dd>
               </dl>
-              <p className="hint">Text editing is always available. Analysis and execution require trust.</p>
+              {/* The hint states this project's mode: a trusted project must not be told that
+                  analysis and execution still need trust (#369). */}
+              <p className="hint">
+                {trusted
+                  ? "This project is trusted: analysis and execution are available."
+                  : "Text editing is always available. Analysis and execution require trust."}
+              </p>
             </div>
           )}
         </section>
@@ -5444,6 +5486,7 @@ export function WorkspaceView({ snapshot, initialFile, recentSolutions, external
           onCheckAgain: () => void redetectSdks(),
         }}
         evaluation={{ ...evaluationStatus, reevaluate: evaluationRun }}
+        evaluationBusy={evaluationBusy}
         partial={partialWorkspace}
         restore={{
           state: restore.state,

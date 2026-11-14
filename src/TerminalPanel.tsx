@@ -67,7 +67,7 @@ export function TerminalPanel({ snapshot, disabledReason, onSnapshot, onError }:
       fontFamily: '"JetBrains Mono Variable", ui-monospace, Menlo, monospace',
       fontSize: 12,
       scrollback: 10_000,
-      theme: { background: "#000000", foreground: "#f5f5f5", selectionBackground: "#1e3358" },
+      theme: { background: "#000000", foreground: "#f5f5f5", selectionBackground: "#30466b" },
     });
     const addon = new FitAddon();
     term.loadAddon(addon);

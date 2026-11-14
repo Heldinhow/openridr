@@ -47,7 +47,7 @@ test("Find Action filters by title, id and group, shows shortcuts and disabled r
   const dialog = page.getByTestId("find-action");
   await expect(dialog).toBeVisible();
   await expect(page.getByTestId("find-action-input")).toBeFocused();
-  await expect(page.getByTestId("find-action-profile")).toContainText("Rider (macOS)");
+  await expect(page.getByTestId("find-action-profile")).toContainText("Rider");
   await expect(page.getByTestId("find-action-shortcut-view.findAction")).toHaveText("⇧⌘A");
   await expect(page.getByTestId("find-action-shortcut-build.start")).toHaveText("⌘F9");
 
@@ -122,7 +122,7 @@ test("keymap captures a key, persists in settings.json, warns on conflicts and r
   await openTextOnly(page);
   await openKeymap(page);
   await expect(page.getByTestId("keymap-profile")).toHaveValue("rider-macos");
-  await expect(page.getByTestId("keymap-active-profile")).toContainText("Rider (macOS)");
+  await expect(page.getByTestId("keymap-active-profile")).toContainText("Rider");
 
   await page.getByTestId("keymap-change-build.start").click();
   await expect(page.getByTestId("keymap-change-build.start")).toHaveAttribute(

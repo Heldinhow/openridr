@@ -157,13 +157,14 @@ export type GitOperation = {
 };
 
 const TRUST_MESSAGE = "Trust the workspace to use Git";
+const NOT_A_REPOSITORY = "Not a git repository. Run git init in the workspace folder to use Git here.";
 
 function unavailable(status: GitStatus | null, error: string | null): string | null {
   if (error) return error;
   if (!status) return null;
-  if (status.state === "not_a_repository") return "Not a git repository";
-  if (status.state === "git_missing") return "git was not found on PATH.";
-  if (status.state === "failed") return status.message ?? "Git is unavailable.";
+  if (status.state === "not_a_repository") return NOT_A_REPOSITORY;
+  if (status.state === "git_missing") return "git was not found on PATH. Install Git and reopen this panel.";
+  if (status.state === "failed") return `${status.message ?? "Git is unavailable."} Check the workspace path and run git status in a terminal.`;
   return null;
 }
 
@@ -1137,6 +1138,7 @@ export function CommitPanel({
             )}
             <button
               type="button"
+              className="primary"
               data-testid="commit-submit"
               disabled={busy || message.trim() === "" || commitPaths.length === 0 || operationReason !== null}
               title={operationReason ?? undefined}
@@ -1210,7 +1212,12 @@ export function GitLogPanel({
     return (
       <div data-testid="git-log">
         <p className="hint" data-testid="git-log-disabled-reason">
-          {log.message ?? "Git log is unavailable."}
+          {log.message
+            ? log.message.endsWith(".")
+              ? log.message
+              : `${log.message}.`
+            : "Git log is unavailable."}
+          {log.state === "not_a_repository" && " Run git init in the workspace folder to use Git here."}
         </p>
       </div>
     );

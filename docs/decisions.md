@@ -2147,3 +2147,82 @@ Consequência: `crates/host/src/lib.rs` (`expand_home`, `home_dir`, `pick_unavai
   `scripts/install-app-linux.sh`, `tests/shell/install-app-linux.test.sh`, `package.json`,
   `docs/install-app.md` e `docs/evidence/linux-packaging.md`. Nenhum `data-testid`, nenhuma
   dependência nova, `AGENTS.md` e workflows intocados.
+
+## 2026-11-09 — Workspace escuro contínuo inspirado no T3 (#348, #349)
+
+A primeira fatia substitui as ilhas arredondadas por uma superfície escura contínua: o Solution Explorer atravessa a altura do editor e da tool window inferior, que passa à coluna do editor. Barra, árvore, abas e código usam uma hierarquia neutra; seleção, sintaxe e diagnósticos continuam distintos. Isto revisita a geometria da decisão UI shape de 2026-10-31, sem remover controles ou migrar preferências: larguras e alturas continuam nos mesmos slots. Referência e limites: [evidence/t3-workspace-349.md](evidence/t3-workspace-349.md). Sem copiar marca, imagens ou funções de agentes; expansão aguarda aprovação visual.
+
+## 2026-11-10 — Ícones da Solution Explorer voltam ao vocabulário do T3 (#349)
+
+O `.cs` volta ao hexágono `C#` do Simple Icons (CC0, do sprite do T3 Code) na cor `--icon-csharp`, e o projeto volta ao glifo por tipo (console, biblioteca, testes, web) nas cores `--icon-project-*`. Substitui o glifo de texto e o retângulo `C#` da entrada "Rider-style explorer icons" (`c626fc2`): eram `<text>` em Arial a 7,5–9,5 px, ilegíveis e dependentes de fonte, e pintavam tudo do mesmo verde fixo. Dependencies, Frameworks e pastas de solução ficam em `--muted`; `solution-icons.css` deixa de ter hex próprio para tipo de arquivo. Sem dependência nova; atribuição restaurada em `THIRD-PARTY-NOTICES.md`.
+
+## 2026-11-10 — Paleta única no app inteiro (#350)
+
+A paleta aprovada no workspace (#349) deixa de ser escopada e vira o `:root` do app: `--bg` `#090909`, `--panel` `#101010`, `--raised` `#1b1b1b`, `--chrome` `#050505`, seleção neutra e aba ativa `#252525`. Saem os tokens `--workspace-*` e o alias em `.workspace-view`; welcome, setup, trust, menus, diálogos, configurações e painéis passam a ler os mesmos valores. `.chrome` e `.toolbar` usam `--chrome` e `.menu-content` usa `--raised`, como os demais popovers. A decisão substitui a exceção registrada em `DESIGN.md` para a primeira fatia; o resto do sistema (tipografia, escala, raios, foco, semântica de estado) não muda. Evidência em [evidence/t3-surfaces-350.md](evidence/t3-surfaces-350.md).
+
+## 2026-11-10 — Ícones da Solution Explorer: a tabela de tipos vira dado, com a precedência do VS Code
+
+- **A decisão.** O mapeamento arquivo → **File kind** deixa de ser um `switch` com 15 casos e passa a ser uma tabela declarativa com três níveis, na ordem de precedência que o VS Code usa no tema de ícones: **nome de arquivo** (`Dockerfile`, `global.json`, `.gitignore`) vence **extensão** (o sufixo mais longo ganha: `docker-compose.override.yml` antes de `yml`), que vence o **genérico**. O resolvedor continua puro e testável sem DOM; o par `fileKind`/`fileGlyph` continua separado, porque o tipo é informação e o glifo é vocabulário visual.
+- **Por que a precedência do VS Code.** É a única parte do mecanismo do VS Code que vale copiar sem copiar os assets: `fileNames` > `fileExtensions` > `languageIds` > default, resolvido por especificidade de CSS em `fileIconThemeData.ts`. O OpenRidr não tem registro de linguagem (o VS Code mapeia `.cs` por `languageIds.csharp`, não por extensão), então o nível de linguagem não existe aqui e a extensão carrega esse papel.
+- **O que não entra.** Nada de carregar JSON de tema em runtime, nada de tema selecionável pelo usuário, nada de `hidesExplorerArrows`. O app tem um tema fixo; a tabela é código, revisada em PR como o resto.
+- **Contrato preservado.** `data-file-kind` e `data-icon` continuam existindo e só ganham valores novos; nenhum valor existente é renomeado ou removido.
+- **Pendência declarada.** A origem dos glifos e das cores de referência (Seti vendorizado, MIT) é dependência nova e aguarda aprovação do Helder; esta entrada fixa o mecanismo, que é o mesmo para qualquer origem.
+
+## 2026-11-10 — Pasta ganha ícone aberto/fechado; o tipo do símbolo continua no selo
+
+- **Pastas.** Toda pasta da árvore passa a mostrar dois desenhos, aberta e fechada, desenhados neste repositório (nenhum asset novo para isso). O nome da pasta não muda o ícone: é o que o VS Code faz — o tema Seti não tem ícone de pasta nenhum e quem desenha é o codicon genérico `folder`/`folder-opened`. Ícone por nome (`src`, `tests`, `bin`, `obj`) é do Material Icon Theme e fica fora.
+- **O que isso substitui.** A D3 de [SPEC-SOLUTION-FILE-ICONS](SPEC-SOLUTION-FILE-ICONS.md) dizia "pasta é chevron e nome, nada mais"; o texto já estava defasado, porque desde `c626fc2` a linha de pasta renderiza um `folder` do Lucide (sem variante aberta/fechada). A decisão agora é explícita: ícone existe, é genérico e tem estado.
+- **`.cs`.** O **Symbol kind** continua visível na árvore pelo selo de canto (letra por tipo, cor por tipo, `aria-describedby` fora do botão), como a D2 da mesma spec fixou. Trocar o glifo base do C# não remove o selo: o tipo do símbolo é informação que o VS Code só mostra no Outline, e aqui ele já está pago e testado.
+- **Consequência.** `TreeRow` deixa de decidir o glifo da pasta por conta própria; o estado aberto/fechado vem do mesmo lugar que o chevron.
+
+## 2026-11-10 — Cor de tipo: a paleta de referência passa pelo piso de 3:1, e `--icon-*` continua a fonte única
+
+- **A decisão.** As cores de **File glyph** seguem a paleta da referência (Seti), com uma exceção por cor: qualquer valor que não alcance **3:1** contra a pior superfície em que a linha aparece é clareado até alcançar. Medido: `_git` `#41535b` dá 2,0:1 sobre `--bg` `#090909`, e `_npm` idem — os dois reprovam; o resto da paleta .NET passa.
+- **Por que o piso.** Ícone é gráfico não textual (WCAG 1.4.11), e o repo já trata isso como teste, não como tabela em doc: o piso vale sobre `--panel`, hover, `--raised`, a linha `--select` focada e o âmbar de `no index`. Uma cor de referência que reprova ali é ajustada, não aceita.
+- **Onde a cor mora.** Nenhum componente ganha hex: a tabela nomeia o token, `src/styles.css` guarda o valor, e o teste de contraste lê os dois. É a regra que o `DESIGN.md` já declara ("cores de tipo são dados, não tema").
+- **Pendência declarada.** "Paleta da referência = Seti" depende da aprovação de dependência; a política (piso medido, token único, teste lendo a tabela) vale para qualquer origem de glifo.
+
+## 2026-11-10 — Ícones da Solution Explorer: uma família só (Seti, MIT) e paleta com teto
+
+- **A decisão.** Os glifos de arquivo passam a vir de **uma** família: a fonte `seti.woff` do tema Seti do VS Code (37 KB, 383 glifos), vendorizada junto de uma tabela derivada com os ~40 tipos que interessam. Licença **MIT** (`jesseweed/seti-ui`; o VS Code também é MIT), com atribuição em `THIRD-PARTY-NOTICES.md`. É asset de terceiro — `risk:high` —, aprovado pelo Helder em 2026-11-10 pelo canal do router. Os glifos preenchidos do `@pierre/trees` (Apache-2.0) ficam só onde o Seti não tem glifo (`.sln`, `.resx`, `.editorconfig`, `.DotSettings`); os ícones de traço do Lucide saem das linhas de arquivo.
+- **Por que.** A crítica de 2026-11-10 (`.impeccable/critique/2026-11-10T13-30-42Z__src-solutiontree-tsx.md`) mediu **23 desenhos de três famílias** (preenchido, traço Lucide, logo C#) e **29 tokens `--icon-*`** entre 4,4:1 e 11,2:1 no mesmo painel, com traço de 1,5 px ao lado de massa preenchida no mesmo slot de 16 px. O Seti é uma família só, preenchida, e a paleta dele é muda por desenho.
+- **A paleta tem teto.** Cor só para os tipos que o Seti colore (~10); pasta, `Dependencies`, `Frameworks` e `Packages` são **estrutura**, não tipo, e vão a `--muted`. `--icon-*` continua a fonte única, e o piso de 3:1 continua valendo: `--icon-git` mede **2,99:1** na linha focada (`#343434`) e sobe até passar.
+- **O que não muda.** `data-file-kind`, `data-icon` e os `data-testid` só ganham valores; nenhum é renomeado ou removido.
+
+## 2026-11-10 — O selo de símbolo sai do ícone do `.cs`
+
+- **A decisão.** O `.cs` passa a ter **um** glifo (o `_c-sharp` do Seti). O selo de 12 px com a letra do tipo sai do ícone. O **Symbol kind** continua no `title` e no `aria-describedby` — que já existem e já têm teste — e aparece como texto na linha quando o filtro da árvore está ativo.
+- **O que substitui.** A D2 de [SPEC-SOLUTION-FILE-ICONS](SPEC-SOLUTION-FILE-ICONS.md), que criou o selo justamente para não perder a informação do PR #23.
+- **Por que.** O selo ocupa 55% da altura de uma linha de 22 px e sangra 3 px para fora do slot: é o pixel mais chamativo de cada arquivo `.cs` e repete uma informação que só importa numa tarefa. O custo aceito: perde-se a leitura de "classe × interface" num relance; quem precisa dela usa o filtro, onde o tipo vira texto.
+
+## 2026-11-10 — A linha da árvore fica em 22 px; o `DESIGN.md` é que estava errado
+
+- **A decisão.** `.workspace-view .side .tree-row.sol-row` mantém `min-height: 22px` e fonte de 13 px. O `DESIGN.md` passa a declarar 22 px nos quatro lugares que prometiam 32/36 px (densidade, `--control-h`, seção "Árvore" e o alvo de 32 px).
+- **Por que.** 22 px com ícone de 16 px é a densidade do VS Code e do Rider, que é a referência desta frente. O documento é que prometia outra coisa — e ele é "proposta", nunca ratificado. A crítica de 2026-11-10 levantou a divergência; ela se resolve no doc, não no código.
+- **Consequência.** Só `DESIGN.md`; nenhum CSS muda por esta entrada. A camada de metadado de projeto que o mesmo doc descreve (`kind · TFM · restore` embaixo do nome) **não** existe no código e entra como trabalho da spec, não como correção de doc.
+
+## 2026-11-10 — Os ícones da Solution Explorer passam a ser o Material Icon Theme (MIT); o Seti sai
+
+- **A decisão.** Os desenhos de arquivo **e de pasta** passam a vir do **Material Icon Theme** (`material-extensions/vscode-material-icon-theme`, MIT), fixado na tag `v5.40.0` (commit `045291ff033062a25441dd297fd51546326866f2`). São SVGs coloridos copiados **verbatim** para `public/file-icons/` (30) e `public/folder-icons/` (15 nomes × fechada/aberta), ~40 KB no total. O mapeamento é o do próprio tema — nome inteiro > extensão mais longa > genérico —, derivado do `material-icons.json` que o `generateJson` do tema produz a partir de `fileIcons.ts` e `folderIcons.ts`; as variantes abertas saem do script do próprio tema. **Nada de fonte, nada de pacote npm, nada de JSON de tema em runtime.**
+- **O que substitui.** A entrada "uma família só (Seti, MIT)" e a "paleta com teto" do mesmo dia: `seti.woff`, a tabela derivada de codepoints, os glifos do `@pierre/trees` e os tokens `--icon-*` saem do repositório. Os ícones de traço do Lucide também saem das linhas de arquivo, de projeto, de `Dependencies` e de `Frameworks`.
+- **Por que.** O Seti é uma fonte de glifos de uma cor por família, com desenhos de 2014: o mantenedor abriu o app depois do #359 e o veredito foi "muito feio, sem sentido". O Material Icon Theme é o padrão de fato do VS Code para esse vocabulário, e um SVG por tipo carrega detalhe que um glifo de fonte monocromático não carrega.
+- **Pasta por nome, agora sim.** A entrada "Pasta ganha ícone aberto/fechado" recusava ícone por nome de pasta ("é do Material Icon Theme e fica fora"). Esta entrada **inverte** aquilo: `src`, `tests`, `docs`, `Properties`, `wwwroot`, `bin`, `.github`, `.vscode`, `scripts`, `assets`, `Controllers`, `Models`, `Views`, `Services` e `Migrations` têm desenho próprio, aberto e fechado, como no tema. `obj` não está no tema e cai no genérico.
+- **Cor: a do tema, sem token.** Nenhum `--icon-*` sobrevive: o `fill` de cada SVG é o do tema e o componente não tinge nada. O piso de 3:1 continua medido, agora sobre a superfície de repouso (`--panel`), onde todos os desenhos passam (mínimo 3,52:1). Na linha focada (`#343434`) quatro desenhos de arquivo e dois corpos de pasta ficam entre 2,31:1 e 2,70:1; a decisão é **manter a cor do tema** em vez de inventar uma variante clareada — o nome do arquivo ao lado carrega a informação que a cor reforça, e o teste declara esses valores como dado em vez de silenciá-los.
+- **O que não muda.** `data-file-kind` mantém os mesmos valores (o tipo é semântico e não muda com o desenho); `data-icon` passa a valer o nome do ícone do tema; `data-testid` e `data-folder` continuam. Nenhum valor de `data-file-kind` é renomeado ou removido.
+- **Asset de terceiro (`risk:high`).** Aprovado pelo Helder em 2026-11-10 pelo canal do router (`human:thread:mcp:6f1c0504-a78b-466b-a807-71e6f3ccea57:material-icons-approved`); a atribuição, o commit e a lista de arquivos estão em `THIRD-PARTY-NOTICES.md`.
+
+## 2026-11-10 — Aberto pelo Finder, o app herda o ambiente do shell de login (#362)
+
+- **A decisão.** No macOS, quando o pai do processo é o `launchd` (pid 1) — Finder, Dock, Spotlight, `open` —, `crates/host/src/shell_env.rs` roda uma vez `$SHELL` (fallback `/bin/zsh`) com `-ilc`, lê o `env -0` que ela imprime entre dois marcadores e faz `set_var` de cada variável no processo, antes de o Tauri subir. Todo filho (`dotnet`, csharp-ls, adaptador de debug, terminal) herda o resultado sem que nenhum deles saiba que a resolução existe.
+- **Por que o pai, e não uma variável.** `TERM`/`TERM_PROGRAM` não separam Finder de terminal com confiança, e um app aberto por `open` a partir do terminal também não herda o ambiente. O pai é o sinal que o sistema já dá: `launchd` no lançamento gráfico, o shell no lançamento de terminal — e aí não há nada a resolver.
+- **Por que marcadores e `env -0`.** `.zshrc` imprime banner, aviso de `nvm`/`conda` e erro de `stty`; sem marcador isso viraria variável. `-0` separa por NUL, então um valor com quebra de linha (o JSON de `VSS_NUGET_EXTERNAL_FEED_ENDPOINTS`, por exemplo) sobrevive, e o parser descarta o que está fora dos marcadores.
+- **Limites.** 5 s de prazo; estourado, o shell é morto e o ambiente atual fica. A leitura do pipe roda em thread própria com prazo, então um `.zshrc` que deixa um daemon segurando o stdout não trava a abertura. `_`, `SHLVL`, `PWD` e `OLDPWD` não são mesclados: descrevem o shell auxiliar, não o ambiente do usuário. Nenhum valor vai para o log — só a contagem e o caminho do shell, ou o motivo da falha.
+- **Linux e Windows.** `should_resolve` é falso fora do macOS, e a chamada em `main` é a única mudança no shell do app; parser, mesclagem e prazo são testados no Linux.
+- **Custo aceito.** A resolução roda antes do plugin de instância única, então uma segunda abertura paga o tempo do shell (tipicamente < 300 ms; 5 s no pior caso) antes de sair e focar a janela existente.
+
+## 2026-11-10 — O rail direito perde os três botões desabilitados (issue #371)
+
+- **A decisão.** "Monitoring", "AI Assistant" e "Database" saem do rail direito. O rail fica com o botão "Workspace tools", que é o único que abre alguma coisa. Voltar a ter qualquer um dos três é decisão de produto do Helder, não de uma sessão.
+- **O que substitui.** O bullet "G13/G21/G22/G23 (chrome)" de 2026-11-04, que mantinha os três visíveis e desabilitados com o tooltip "`<nome>` is not part of OpenRidr". Aquele argumento era paridade com o Rider; a direção atual é **IDE simplificada** (rodar, depurar, executar), e um placeholder sem função contradiz isso.
+- **Por que.** O rail é a maior densidade de ícones da tela; três deles só diziam o que o produto não é, a 11 px e 4,3:1. O espaço não é reservado para nada: o rail continua com o que tem função e nada ocupa o lugar deles.
+- **O que muda no contrato.** Nenhum `data-testid` sai (os três não tinham). O spec `shell.spec.ts` passa a provar a ausência pelo nome acessível em vez da presença desabilitada.

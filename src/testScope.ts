@@ -1,3 +1,5 @@
+import { effectiveTfm } from "./tfm";
+
 /**
  * The TFM the Tests panel operates on.
  *
@@ -13,7 +15,5 @@ export function testPanelFramework(args: {
   /** `tfms` of the selected test project (empty when it was not evaluated). */
   projectTfms: string[];
 }): string | null {
-  if (args.contextFramework) return args.contextFramework;
-  const declared = args.projectTfms.filter((tfm) => tfm.trim().length > 0);
-  return declared.length === 1 ? declared[0] : null;
+  return effectiveTfm(args.contextFramework, args.projectTfms);
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { FileIcon } from "../FileIcon";
 import { call, type ReadFile, type TextSearch, type WorkspaceFiles, type WorkspaceSymbol, type WorkspaceSymbolResult } from "../host/client";
 import { profileTitle, type ProfileId } from "./keymap";
 import type { ResolvedAction } from "./registry";
@@ -616,6 +617,7 @@ export function FindAction({
                     onClick={() => choose(hit)}
                     title={hit.detail}
                   >
+                    <FileIcon path={hit.type === "symbol" ? hit.symbol.path : hit.path} />
                     <span className="search-kind">{kindLabel(hit)}</span>
                     <span className="action-title">{hit.title}</span>
                     <span className="muted action-group">{hit.detail}</span>

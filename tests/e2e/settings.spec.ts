@@ -91,7 +91,7 @@ test("Settings opens from the bar and ⌘,, searches by name and explains the mi
 
   // The tree switches pages independently of the search.
   await selectPage(page, "keymap");
-  await expect(page.getByTestId("keymap-active-profile")).toContainText("Rider (macOS)");
+  await expect(page.getByTestId("keymap-active-profile")).toContainText("Rider");
   await expect(page.getByTestId("keymap-shortcut-build.start")).toHaveText("⌘F9");
   await expect(page.getByTestId("keymap-chords")).toContainText("cannot be remapped");
   await expect(page.getByTestId("keymap-chord-tests.runSelected")).toHaveText(
@@ -207,12 +207,15 @@ test("appearance applies zoom and density live; Cancel discards and invalid valu
     .poll(() => workspace.evaluate((element) => getComputedStyle(element).zoom))
     .toBe("1.1");
   await expect(workspace).toHaveAttribute("data-density", "compact");
+  const row = page.locator(".side .sol-row").first();
+  await expect(row).toHaveCSS("min-height", "32px");
 
   await page.getByTestId("settings-cancel").click();
   await expect
     .poll(() => workspace.evaluate((element) => getComputedStyle(element).zoom))
     .toBe("1");
   await expect(workspace).toHaveAttribute("data-density", "comfortable");
+  await expect(row).toHaveCSS("min-height", "36px");
   expect(savedSettings()).toEqual({});
 
   await openSettings(page);
@@ -250,7 +253,7 @@ test("keymap changes made in Settings stay in the draft until Save, persist and 
   await openTextOnly(page);
   await openSettings(page);
   await selectPage(page, "keymap");
-  await expect(page.getByTestId("keymap-active-profile")).toContainText("Rider (macOS)");
+  await expect(page.getByTestId("keymap-active-profile")).toContainText("Rider");
 
   await page.getByTestId("keymap-change-build.start").click();
   await page.keyboard.press("Meta+Shift+F9");

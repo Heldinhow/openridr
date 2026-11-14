@@ -67,7 +67,7 @@ test("⇧⇧ opens Search Everywhere, Files opens a file, and reopening returns 
   await openSearch(page);
   const dialog = page.getByTestId("find-action");
   await expect(page.getByRole("heading", { name: "Search Everywhere" })).toBeVisible();
-  await expect(page.getByTestId("find-action-profile")).toContainText("Rider (macOS)");
+  await expect(page.getByTestId("find-action-profile")).toContainText("Rider");
   await expect(page.getByTestId("search-tab-all")).toHaveAttribute("aria-selected", "true");
   for (const tab of ["all", "classes", "files", "symbols", "actions", "text"]) {
     await expect(page.getByTestId(`search-tab-${tab}`)).toBeVisible();

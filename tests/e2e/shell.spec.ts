@@ -132,13 +132,13 @@ test("the single bar keeps placeholders disabled and the status bar reports the 
   await expect(page.getByTestId("status-cursor")).toContainText("Ln 1, Col 1");
   await expect(page.getByTestId("status-encoding")).toHaveText("UTF-8");
   await expect(page.getByTestId("status-indent")).toHaveText("4 spaces");
-  await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider (macOS)");
+  await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider");
 });
 
 test("the status bar names the active keymap profile", async ({ page }) => {
   await page.goto("/");
   await openTextOnly(page);
-  await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider (macOS)");
+  await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider");
 
   await page.getByTestId("toolbar-settings").click();
   await page.getByTestId("settings-page-keymap").click();
@@ -146,18 +146,19 @@ test("the status bar names the active keymap profile", async ({ page }) => {
   await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: IntelliJ");
 
   await page.getByTestId("settings-cancel").click();
-  await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider (macOS)");
+  await expect(page.getByTestId("status-keymap")).toHaveText("Keymap: Rider");
 });
 
 test("the chrome names the absent tool windows and every Solution icon", async ({ page }) => {
   await page.goto("/");
   await openTextOnly(page);
 
+  // #371: the right rail keeps only what has a function. A disabled placeholder is not a plan.
   const right = page.getByTestId("tool-windows-right");
+  await expect(right.locator("button")).toHaveCount(1);
+  await expect(right.getByTestId("workspace-tools-toggle")).toBeVisible();
   for (const title of ["Monitoring", "AI Assistant", "Database"]) {
-    const button = right.getByRole("button", { name: title });
-    await expect(button).toBeDisabled();
-    await expect(button).toHaveAttribute("title", `${title} is not part of OpenRidr`);
+    await expect(right.getByRole("button", { name: title })).toHaveCount(0);
   }
 
   const solutionTools: [string, string, string][] = [

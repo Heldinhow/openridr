@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { FileIcon } from "./FileIcon";
 import { call, messageOf, type TextSearch } from "./host/client";
 
 type LineHit = { path: string; line: number; character: number; text: string };
@@ -160,6 +161,7 @@ export function FindInFiles({
                 onClick={() => choose(hit)}
                 title={`${hit.path}:${hit.line + 1}`}
               >
+                <FileIcon path={hit.path} />
                 <span className="search-kind">line</span>
                 <span className="action-title">{hit.text.trim() || hit.path}</span>
                 <span className="muted action-group">

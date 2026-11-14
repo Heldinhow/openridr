@@ -1,11 +1,20 @@
-import type { ProjectKind } from "../solutionVisuals";
+import { fileIconUrl } from "./iconAssets";
 
-/** Original outlined C# project mark; project kind remains available on the row. */
-export function ProjectIcon({ kind }: { kind: ProjectKind }) {
+/**
+ * A project row: the theme's `.csproj` drawing. The theme uses one Visual Studio icon for both the
+ * solution file and the project file, so the solution root and its projects share it; the project
+ * kind stays readable as text in the row's second layer.
+ */
+export function ProjectIcon() {
   return (
-    <svg className={`project-icon project-${kind}`} width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <rect x="1" y="2.5" width="14" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-      <text x="2.5" y="10.7" fill="currentColor" fontFamily="Arial, sans-serif" fontSize="7.5" fontWeight="700">C#</text>
-    </svg>
+    <img
+      className="project-icon"
+      data-icon="visualstudio"
+      src={fileIconUrl("visualstudio")}
+      width={16}
+      height={16}
+      alt=""
+      aria-hidden="true"
+    />
   );
 }

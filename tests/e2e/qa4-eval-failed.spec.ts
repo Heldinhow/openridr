@@ -25,6 +25,13 @@ test("4 - a project whose evaluation failed still lists its files and the error 
     await expect(page.getByTestId("tree-file-Program.cs")).toBeVisible();
     await expect(page.getByTestId("tree-file-BrokenImport.csproj")).toBeVisible();
 
+    // The state tag keeps its width; the name is what ellipsizes first (SPEC #358).
+    const project = page.getByTestId("tree-project-BrokenImport");
+    const tag = project.locator(".tag.error");
+    await expect(tag).toBeVisible();
+    expect(await tag.evaluate((el) => getComputedStyle(el).flexShrink)).toBe("0");
+    expect(await project.locator(".tree-name").evaluate((el) => getComputedStyle(el).flexShrink)).toBe("1");
+
     await page.getByTestId("bottom-tab-problems").click();
     const problems = page.getByTestId("eval-problems");
     await expect(problems).toContainText("MSB4019");
