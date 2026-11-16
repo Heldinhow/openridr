@@ -2355,6 +2355,23 @@ Revisão em subagente único (Pi `openai-codex/gpt-6.1-terra`, thinking medium) 
   macOS (só a suíte de CI roda os testes de fronteira de lá); `.deb`/AppImage/updater (fora do
   escopo da issue).
 
+## 2026-11-09 — Pacote Linux (#322, tickets #323–#325)
+
+`tauri.linux.conf.json` ganhou os alvos `deb`/`appimage`, `deb.section`/`depends`/`desktopTemplate`,
+`bundle.icon` do Linux e `fileAssociations` vazio; o template da entrada mora em
+`src-tauri/linux/openridr.desktop` e é usado pelo deb, pelo AppImage e pelo script. O host passou a
+receber o `resource_dir()` do shell (`Host::set_resource_dir` → `bundled::set_shell_resource_dir`) e
+`bundled::resolve_root` decide entre ele e o irmão do binário. `scripts/install-app-linux.sh`
+instala num prefixo sem root e `tests/shell/install-app-linux.test.sh` cobre a instalação e as
+recusas sob `dash`.
+
+**Não verificado:** `.deb` instalado num Debian/Ubuntu real (não há `dpkg` no host verificado),
+`x86_64`, AppImage por FUSE, o texto da tela de setup e o debug parando em breakpoint no app
+instalado (o barramento AT-SPI recusou conexão na sessão, então o `agent-desktop` não lê a árvore),
+e o ícone no menu do sistema (o prefixo temporário não está no `XDG_DATA_DIRS`). O encadeamento
+pacote → host → adaptador está provado por listagem do deb e pelos testes do host; ver
+[evidence/linux-packaging.md](evidence/linux-packaging.md).
+
 ## Workspace inspirado no T3 (#349)
 
 `rider-chrome.css` posiciona a árvore junto ao editor e à tool window, preservando os splitters e as preferências existentes, e aplica superfícies e abas neutras ao workspace. `CodeEditor.tsx` ajusta gutter, linha ativa, seleção e sintaxe mantendo diagnósticos e marcas de debug. Os testes de layout cobrem três tamanhos e teclado; o teste de Settings cobre ambas as densidades e persistência. Evidência, capturas e falhas da execução em [evidence/t3-workspace-349.md](evidence/t3-workspace-349.md).

@@ -1,4 +1,53 @@
-# Instalar o OpenRidr como app local (macOS ARM64)
+# Instalar o OpenRidr como app local (Linux e macOS ARM64)
+
+## Linux (deb, AppImage ou `~/.local`)
+
+O build do Linux produz dois pacotes e o repositório traz um terceiro caminho, sem root:
+
+| Distro | Artefato | Como instalar |
+|---|---|---|
+| Debian, Ubuntu, Mint | `OpenRidr_<versão>_arm64.deb` | `sudo apt install ./OpenRidr_<versão>_arm64.deb` |
+| Qualquer distro, sem root | `OpenRidr_<versão>_aarch64.AppImage` | `chmod +x` e execute; sem `fuse2`, `--appimage-extract-and-run` |
+| Arch e derivados | `bun run app:install:linux` | instala em `~/.local` |
+
+```sh
+bun run tauri build          # src-tauri/target/release/bundle/{deb,appimage}/
+bun run app:install:linux    # ~/.local, sem root
+```
+
+- **O `.deb`** declara `Depends: libwebkit2gtk-4.1-0, libgtk-3-0 | libgtk-3-0t64` (a alternativa
+  cobre a renomeação `t64` do Ubuntu 24.04+) e instala o binário em `/usr/bin/openridr`, o payload
+  em `/usr/lib/OpenRidr/`, a entrada em `/usr/share/applications/OpenRidr.desktop` e o ícone em
+  `/usr/share/icons/hicolor/{32x32,128x128,256x256}/apps/openridr.png`. Remover:
+  `sudo apt remove open-ridr`.
+- **O `.AppImage`** roda sem instalar nada. Ele precisa de `fuse2`; sem ele, use
+  `./OpenRidr_<versão>_aarch64.AppImage --appimage-extract-and-run`.
+- **`bun run app:install:linux`** compila com `tauri build --no-bundle` e copia para
+  `~/.local/bin/openridr`, `~/.local/lib/openridr/netcoredbg/`,
+  `~/.local/share/applications/openridr.desktop` (com o `Exec` absoluto, porque sessão gráfica
+  raramente tem `~/.local/bin` no `PATH`) e `~/.local/share/icons/hicolor/…`. `--prefix <dir>`
+  instala em outro lugar e nada é escrito fora dele. Remover:
+
+  ```sh
+  rm -rf ~/.local/bin/openridr ~/.local/lib/openridr \
+    ~/.local/share/applications/openridr.desktop ~/.local/share/icons/hicolor/*/apps/openridr.png
+  ```
+
+- **Onde o app procura o netcoredbg.** O shell passa o `resource_dir()` ao host; o host usa esse
+  diretório quando existe (`/usr/lib/OpenRidr` no deb, `$APPDIR/usr/lib/OpenRidr` no AppImage) e cai
+  para o irmão do binário (`<prefixo>/lib/openridr`) quando não existe. Nenhum dos três caminhos
+  baixa o adaptador; se ele faltar, o setup diz para reinstalar o app.
+- **Abrir uma solução:** `openridr OrderDesk.sln`, ou arrastar o arquivo para o ícone — a entrada
+  declara `Exec=… %F`. Com o app já aberto, a segunda execução só traz a janela para frente e abre
+  o arquivo pedido.
+- **Fora do Linux hoje:** o updater ("Check for updates" falha; não há canal para Linux), o
+  `csharp-ls` baixado no primeiro uso e a associação de `.sln`/`.slnx`/`.csproj` no gerenciador de
+  arquivos (o `.desktop` não declara `MimeType`).
+- **Não verificado:** `.deb` instalado num Debian/Ubuntu real (o host verificado é Arch Linux ARM,
+  sem `dpkg`), `x86_64` e o AppImage por FUSE. Detalhes em
+  [evidence/linux-packaging.md](evidence/linux-packaging.md).
+
+## macOS ARM64
 
 Uso pessoal, sem assinatura nem notarização. O DMG de release é assinado com Developer ID e
 notarizado; este script continua ad-hoc — ver [release-signing.md](release-signing.md).
